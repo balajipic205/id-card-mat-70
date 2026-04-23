@@ -198,6 +198,7 @@ function EditorPage() {
         </section>
       </main>
     </div>
+    </AuthGate>
   );
 }
 
