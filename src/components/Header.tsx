@@ -1,4 +1,7 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+import { useAuth } from "@/lib/use-auth";
+import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
 
 const links = [
   { to: "/", label: "Editor" },
@@ -7,6 +10,16 @@ const links = [
 
 export function Header() {
   const loc = useLocation();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const router = useRouter();
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.invalidate();
+    navigate({ to: "/login" });
+  }
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
@@ -37,6 +50,14 @@ export function Header() {
               </Link>
             );
           })}
+          {user ? (
+            <div className="ml-3 flex items-center gap-2 border-l border-border pl-3">
+              <span className="hidden text-xs text-muted-foreground sm:inline">{user.email}</span>
+              <Button size="sm" variant="outline" onClick={signOut}>
+                Sign out
+              </Button>
+            </div>
+          ) : null}
         </nav>
       </div>
     </header>

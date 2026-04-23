@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/Header";
+import { AuthGate } from "@/components/AuthGate";
 import { IDCard } from "@/components/IDCard";
 import { LayoutConfig, loadLayout, saveLayout, INITIAL_LAYOUT } from "@/lib/idcard-store";
 import { Member, supabase } from "@/lib/supabase";
@@ -117,6 +118,7 @@ function EditorPage() {
   }
 
   return (
+    <AuthGate>
     <div className="min-h-screen">
       <Header />
       <Toaster theme="dark" position="top-right" richColors />
@@ -196,6 +198,7 @@ function EditorPage() {
         </section>
       </main>
     </div>
+    </AuthGate>
   );
 }
 
