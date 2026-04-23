@@ -29,14 +29,18 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "ID CARD FOR MAKE A THON 7.0" },
+      { name: "description", content: "Create custom ID cards with personalized details, images, and QR codes on pre-designed templates." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "ID CARD FOR MAKE A THON 7.0" },
+      { property: "og:description", content: "Create custom ID cards with personalized details, images, and QR codes on pre-designed templates." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "ID CARD FOR MAKE A THON 7.0" },
+      { name: "twitter:description", content: "Create custom ID cards with personalized details, images, and QR codes on pre-designed templates." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/Zhqn55JUgMVQUsdiyKfLsUXf3Wg1/social-images/social-1776977194341-stickers_.webp" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/Zhqn55JUgMVQUsdiyKfLsUXf3Wg1/social-images/social-1776977194341-stickers_.webp" },
     ],
     links: [
       {
