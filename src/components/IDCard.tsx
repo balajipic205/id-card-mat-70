@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import templateImg from "@/assets/id-template.png";
 import { LayoutConfig } from "@/lib/idcard-store";
-import { resolvePhotoUrl } from "@/lib/supabase";
+import { resolvePhotoUrlAsync, fetchPhotoAsDataUrl } from "@/lib/supabase";
 
 export interface CardPerson {
   id: string;
@@ -16,14 +16,16 @@ interface Props {
   /** Width of the card in CSS pixels. Height is derived from template aspect ratio. */
   width: number;
   className?: string;
+  /** When true, embed the photo as a data URL (for html2canvas export). */
+  embedPhoto?: boolean;
 }
 
 // Template natural aspect ratio (h/w). The uploaded template is roughly 884x1044.
 export const TEMPLATE_RATIO = 1044 / 884;
 
-export function IDCard({ person, layout, width, className }: Props) {
+export function IDCard({ person, layout, width, className, embedPhoto }: Props) {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
-  const photoUrl = resolvePhotoUrl(person.photo);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const height = width * TEMPLATE_RATIO;
 
   useEffect(() => {
@@ -36,6 +38,19 @@ export function IDCard({ person, layout, width, className }: Props) {
       .catch(() => setQrDataUrl(""));
   }, [person.id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (embedPhoto ? fetchPhotoAsDataUrl(person.photo) : resolvePhotoUrlAsync(person.photo))
+      .then((u) => {
+        if (!cancelled) setPhotoUrl(u);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [person.photo, embedPhoto]);
+
+  // NOTE: All colors below use plain hex/rgba — no oklch / Tailwind color
+  // tokens — so html2canvas can rasterize this DOM cleanly.
   return (
     <div
       className={"relative overflow-hidden " + (className ?? "")}
@@ -45,12 +60,15 @@ export function IDCard({ person, layout, width, className }: Props) {
         backgroundImage: `url(${templateImg})`,
         backgroundSize: "100% 100%",
         backgroundRepeat: "no-repeat",
+        backgroundColor: "#000000",
       }}
     >
       {/* Photo */}
       <div
-        className="absolute overflow-hidden bg-black/20"
         style={{
+          position: "absolute",
+          overflow: "hidden",
+          backgroundColor: "rgba(0,0,0,0.2)",
           left: `${layout.photo.x - layout.photo.w / 2}%`,
           top: `${layout.photo.y - layout.photo.h / 2}%`,
           width: `${layout.photo.w}%`,
@@ -59,15 +77,24 @@ export function IDCard({ person, layout, width, className }: Props) {
         }}
       >
         {photoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={photoUrl}
             alt={person.name}
             crossOrigin="anonymous"
-            className="h-full w-full object-cover"
+            style={{ height: "100%", width: "100%", objectFit: "cover", display: "block" }}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-[10px] text-white/70">
+          <div
+            style={{
+              display: "flex",
+              height: "100%",
+              width: "100%",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "10px",
+              color: "rgba(255,255,255,0.7)",
+            }}
+          >
             No photo
           </div>
         )}
@@ -75,8 +102,10 @@ export function IDCard({ person, layout, width, className }: Props) {
 
       {/* QR */}
       <div
-        className="absolute bg-white p-[2px]"
         style={{
+          position: "absolute",
+          backgroundColor: "#ffffff",
+          padding: "2px",
           left: `${layout.qr.x - layout.qr.w / 2}%`,
           top: `${layout.qr.y - layout.qr.h / 2}%`,
           width: `${layout.qr.w}%`,
@@ -84,14 +113,18 @@ export function IDCard({ person, layout, width, className }: Props) {
         }}
       >
         {qrDataUrl ? (
-          <img src={qrDataUrl} alt="qr" className="h-full w-full object-contain" />
+          <img
+            src={qrDataUrl}
+            alt="qr"
+            style={{ height: "100%", width: "100%", objectFit: "contain", display: "block" }}
+          />
         ) : null}
       </div>
 
       {/* Name */}
       <div
-        className="absolute"
         style={{
+          position: "absolute",
           left: `${layout.name.x - layout.name.w / 2}%`,
           top: `${layout.name.y}%`,
           width: `${layout.name.w}%`,
@@ -120,7 +153,7 @@ export function IDCardForExport({
   const internal = useRef<HTMLDivElement>(null);
   return (
     <div ref={(forwardedRef as any) ?? internal}>
-      <IDCard person={person} layout={layout} width={width} />
+      <IDCard person={person} layout={layout} width={width} embedPhoto />
     </div>
   );
 }
