@@ -53,20 +53,20 @@ function getQrImage(id: string): Promise<HTMLImageElement> {
 const photoCache = new Map<string, Promise<HTMLImageElement | null>>();
 function getPhotoImage(photo: string | null): Promise<HTMLImageElement | null> {
   if (!photo) return Promise.resolve(null);
-  let p = photoCache.get(photo);
-  if (!p) {
-    p = fetchPhotoAsDataUrl(photo).then(async (url) => {
-      if (!url) return null;
-      try {
-        return await loadImage(url);
-      } catch {
-        return null;
-      }
-    });
-    photoCache.set(photo, p);
-  }
+  const cached = photoCache.get(photo);
+  if (cached) return cached;
+  const p: Promise<HTMLImageElement | null> = fetchPhotoAsDataUrl(photo).then(async (url: string | null) => {
+    if (!url) return null;
+    try {
+      return await loadImage(url);
+    } catch {
+      return null;
+    }
+  });
+  photoCache.set(photo, p);
   return p;
 }
+
 
 export interface RenderCardInput {
   person: { id: string; name: string; photo: string | null };
