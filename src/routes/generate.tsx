@@ -547,7 +547,12 @@ function GeneratePage() {
                 <option value="single">75 × 90 mm single card</option>
               </select>
               <Button onClick={generatePdf} disabled={generating || finalPeople.length === 0} size="lg">
-                {generating ? "Generating…" : "Download PDF"}
+                {generating
+                  ? progress
+                    ? `Rendering ${progress.done}/${progress.total}…`
+                    : "Generating…"
+                  : "Download PDF"}
+
               </Button>
             </div>
           </div>
