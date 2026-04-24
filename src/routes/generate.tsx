@@ -676,19 +676,8 @@ function GeneratePage() {
             </div>
           </section>
         </main>
-
-        <div
-          ref={cardExportRef}
-          aria-hidden="true"
-          style={{ position: "fixed", left: -99999, top: 0, pointerEvents: "none", display: "grid", gap: 24 }}
-        >
-          {finalPeople.map((person, idx) => (
-            <div key={`${person.id}-${idx}`} data-export-card={idx} style={{ width: `${EXPORT_CARD_W_PX}px` }}>
-              <IDCard person={person} layout={layout} width={EXPORT_CARD_W_PX} embedPhoto />
-            </div>
-          ))}
-        </div>
       </div>
     </AuthGate>
   );
 }
+
