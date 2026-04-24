@@ -647,9 +647,91 @@ function GeneratePage() {
                 Payment screenshot PDF
               </h2>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Upload the payment screenshot, then download a clean PDF with the team name,
-                serial number, and problem statement ID placed above it.
+                Pick a team from the database to auto-fill its details and pull
+                the payment screenshot directly from storage, or use Manual
+                upload to provide your own.
               </p>
+            </div>
+
+            <div className="mb-6 rounded-lg border border-border bg-muted/20 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Teams ({teams.length})
+                </h3>
+                <Input
+                  value={teamSearch}
+                  onChange={(e) => setTeamSearch(e.target.value)}
+                  placeholder="Search by name, number, or PS ID..."
+                  className="max-w-xs"
+                />
+              </div>
+              <div className="max-h-[260px] overflow-auto rounded-md border border-border bg-background">
+                {teamsLoading ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">Loading teams...</div>
+                ) : teams.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">No teams found.</div>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    <li
+                      className={
+                        "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 " +
+                        (selectedTeamId === "manual" ? "bg-muted/40" : "")
+                      }
+                    >
+                      <button
+                        type="button"
+                        onClick={() => loadPaymentFromTeam("manual")}
+                        className="flex-1 text-left text-sm font-medium"
+                      >
+                        Manual upload (no team)
+                      </button>
+                    </li>
+                    {teams
+                      .filter((t) => {
+                        const q = teamSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          (t.team_name ?? "").toLowerCase().includes(q) ||
+                          String(t.team_number ?? "").includes(q) ||
+                          (t.problem_statement_id ?? "").toLowerCase().includes(q)
+                        );
+                      })
+                      .map((t) => (
+                        <li
+                          key={t.id}
+                          className={
+                            "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 " +
+                            (selectedTeamId === t.id ? "bg-muted/40" : "")
+                          }
+                        >
+                          <button
+                            type="button"
+                            onClick={() => loadPaymentFromTeam(t.id)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex h-5 min-w-[2rem] items-center justify-center rounded bg-primary/15 px-1.5 font-mono text-xs">
+                                #{t.team_number ?? "?"}
+                              </span>
+                              <span className="truncate text-sm font-medium">{t.team_name}</span>
+                              {!t.payment_screenshot_url && (
+                                <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
+                                  no screenshot
+                                </span>
+                              )}
+                            </div>
+                            <div className="truncate font-mono text-xs text-muted-foreground">
+                              {t.problem_statement_id ?? "-"}
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+              {paymentLoadingFromDb && (
+                <div className="mt-2 text-xs text-muted-foreground">Loading screenshot from storage...</div>
+              )}
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
