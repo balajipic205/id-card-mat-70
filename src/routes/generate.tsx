@@ -61,8 +61,10 @@ const PER_PAGE = COLS * ROWS;
 const MARGIN_X = (A4_W - COLS * CARD_W_MM) / (COLS + 1);
 const MARGIN_Y = (A4_H - ROWS * CARD_H_MM) / (ROWS + 1);
 
-const EXPORT_CARD_W_PX = 360;
-const EXPORT_SCALE = 3.2;
+// Export resolution: ~300 DPI for a 75 mm wide card => ~886 px.
+const EXPORT_CARD_W_PX = 900;
+// Concurrent canvas renders.
+const RENDER_CONCURRENCY = 6;
 
 const PREVIEW_PX_PER_MM = 3.2;
 const PREVIEW_W = A4_W * PREVIEW_PX_PER_MM;
@@ -72,46 +74,6 @@ const PREVIEW_CELL_H = CARD_H_MM * PREVIEW_PX_PER_MM;
 const PREVIEW_CARD_W = PREVIEW_CELL_W;
 const PREVIEW_CARD_H = PREVIEW_CARD_W * TEMPLATE_RATIO;
 
-const SANITIZED_EXPORT_STYLE = `
-  :root, html, body, * {
-    --background: #ffffff;
-    --foreground: #000000;
-    --card: #ffffff;
-    --card-foreground: #000000;
-    --popover: #ffffff;
-    --popover-foreground: #000000;
-    --primary: #000000;
-    --primary-foreground: #ffffff;
-    --secondary: #f1f5f9;
-    --secondary-foreground: #000000;
-    --muted: #f1f5f9;
-    --muted-foreground: #475569;
-    --accent: #f1f5f9;
-    --accent-foreground: #000000;
-    --destructive: #ef4444;
-    --destructive-foreground: #ffffff;
-    --border: #e2e8f0;
-    --input: #e2e8f0;
-    --ring: #000000;
-  }
-  html, body {
-    color: #000 !important;
-    background: #fff !important;
-  }
-`;
-
-function sanitizeClonedDocument(doc: Document) {
-  const style = doc.createElement("style");
-  style.textContent = SANITIZED_EXPORT_STYLE;
-  doc.head.appendChild(style);
-
-  doc.querySelectorAll<HTMLElement>("*").forEach((el) => {
-    const inlineStyle = el.getAttribute("style");
-    if (inlineStyle?.includes("oklch")) {
-      el.setAttribute("style", inlineStyle.replace(/oklch\([^)]*\)/g, "#000"));
-    }
-  });
-}
 
 function chunkPeople(people: Person[]) {
   const out: Person[][] = [];
