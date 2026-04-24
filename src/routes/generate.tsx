@@ -193,6 +193,28 @@ function GeneratePage() {
           useCORS: true,
           allowTaint: false,
           logging: false,
+          onclone: (doc) => {
+            // html2canvas cannot parse oklch(). Strip any computed/declared
+            // oklch colors from the cloned tree so it falls back to defaults.
+            const all = doc.querySelectorAll<HTMLElement>("*");
+            all.forEach((el) => {
+              const s = el.style;
+              (["color", "backgroundColor", "borderColor", "outlineColor", "fill", "stroke"] as const).forEach(
+                (prop) => {
+                  const v = (s as any)[prop] as string | undefined;
+                  if (v && v.includes("oklch")) (s as any)[prop] = "";
+                }
+              );
+            });
+            // Also wipe any inherited oklch from html/body via inline overrides.
+            const root = doc.documentElement;
+            const body = doc.body;
+            [root, body].forEach((el) => {
+              if (!el) return;
+              el.style.color = "#000000";
+              el.style.background = "#ffffff";
+            });
+          },
         });
         const imgData = canvas.toDataURL("image/jpeg", 0.92);
         if (i > 0) pdf.addPage("a4", "portrait");
