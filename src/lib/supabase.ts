@@ -8,41 +8,51 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
 export const PHOTO_BUCKET = "member-photos";
+export const PAYMENT_BUCKET = "payment-screenshots";
 
 // In-memory cache so we don't re-sign on every render.
 const signedUrlCache = new Map<string, { url: string; expires: number }>();
 
 /**
- * Resolve a photo reference to a usable URL.
- * - Full http(s) URLs are returned as-is.
- * - Storage paths are signed using the current authenticated session
- *   (admin login). No public RLS / bucket changes required.
+ * Resolve a storage path to a signed URL using the authenticated session.
+ * Full http(s) URLs are returned as-is. The bucket defaults to member-photos
+ * for backward compatibility.
  */
-export async function resolvePhotoUrlAsync(
-  photo: string | null | undefined
+export async function resolveStorageUrlAsync(
+  path: string | null | undefined,
+  bucket: string = PHOTO_BUCKET,
 ): Promise<string | null> {
-  if (!photo) return null;
-  if (photo.startsWith("http://") || photo.startsWith("https://")) return photo;
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
 
+  const cacheKey = `${bucket}::${path}`;
   const now = Date.now();
-  const cached = signedUrlCache.get(photo);
+  const cached = signedUrlCache.get(cacheKey);
   if (cached && cached.expires > now + 30_000) return cached.url;
 
   const { data, error } = await supabase.storage
-    .from(PHOTO_BUCKET)
-    .createSignedUrl(photo, 60 * 60); // 1h
+    .from(bucket)
+    .createSignedUrl(path, 60 * 60); // 1h
   if (error || !data?.signedUrl) return null;
 
-  signedUrlCache.set(photo, { url: data.signedUrl, expires: now + 60 * 60 * 1000 });
+  signedUrlCache.set(cacheKey, { url: data.signedUrl, expires: now + 60 * 60 * 1000 });
   return data.signedUrl;
 }
 
-/** Fetch a photo and return a base64 data URL — useful for html2canvas exports
- *  to avoid CORS taint and tainted canvas errors. */
-export async function fetchPhotoAsDataUrl(
-  photo: string | null | undefined
+/** Back-compat alias. */
+export async function resolvePhotoUrlAsync(
+  photo: string | null | undefined,
 ): Promise<string | null> {
-  const url = await resolvePhotoUrlAsync(photo);
+  return resolveStorageUrlAsync(photo, PHOTO_BUCKET);
+}
+
+/** Fetch any storage object as a base64 data URL — required for clean canvas
+ *  embedding without CORS tainting. */
+export async function fetchStorageAsDataUrl(
+  path: string | null | undefined,
+  bucket: string = PHOTO_BUCKET,
+): Promise<string | null> {
+  const url = await resolveStorageUrlAsync(path, bucket);
   if (!url) return null;
   try {
     const res = await fetch(url);
