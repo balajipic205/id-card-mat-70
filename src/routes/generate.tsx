@@ -194,25 +194,41 @@ function GeneratePage() {
           allowTaint: false,
           logging: false,
           onclone: (doc) => {
-            // html2canvas cannot parse oklch(). Strip any computed/declared
-            // oklch colors from the cloned tree so it falls back to defaults.
-            const all = doc.querySelectorAll<HTMLElement>("*");
-            all.forEach((el) => {
-              const s = el.style;
-              (["color", "backgroundColor", "borderColor", "outlineColor", "fill", "stroke"] as const).forEach(
-                (prop) => {
-                  const v = (s as any)[prop] as string | undefined;
-                  if (v && v.includes("oklch")) (s as any)[prop] = "";
-                }
-              );
-            });
-            // Also wipe any inherited oklch from html/body via inline overrides.
-            const root = doc.documentElement;
-            const body = doc.body;
-            [root, body].forEach((el) => {
-              if (!el) return;
-              el.style.color = "#000000";
-              el.style.background = "#ffffff";
+            // html2canvas cannot parse oklch(). Neutralize all oklch usage
+            // in the cloned document by (a) overriding CSS variables and
+            // (b) forcing safe colors on every element.
+            const style = doc.createElement("style");
+            style.textContent = `
+              :root, html, body, * {
+                --background: #ffffff;
+                --foreground: #000000;
+                --card: #ffffff;
+                --card-foreground: #000000;
+                --popover: #ffffff;
+                --popover-foreground: #000000;
+                --primary: #000000;
+                --primary-foreground: #ffffff;
+                --secondary: #f1f5f9;
+                --secondary-foreground: #000000;
+                --muted: #f1f5f9;
+                --muted-foreground: #475569;
+                --accent: #f1f5f9;
+                --accent-foreground: #000000;
+                --destructive: #ef4444;
+                --destructive-foreground: #ffffff;
+                --border: #e2e8f0;
+                --input: #e2e8f0;
+                --ring: #000000;
+              }
+              html, body { color: #000 !important; background: #fff !important; }
+            `;
+            doc.head.appendChild(style);
+            // Strip any inline oklch declarations defensively.
+            doc.querySelectorAll<HTMLElement>("*").forEach((el) => {
+              const s = el.getAttribute("style");
+              if (s && s.includes("oklch")) {
+                el.setAttribute("style", s.replace(/oklch\([^)]*\)/g, "#000"));
+              }
             });
           },
         });
