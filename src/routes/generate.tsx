@@ -325,6 +325,42 @@ function GeneratePage() {
       toast.error("PDF generation failed: " + err.message);
     } finally {
       setGenerating(false);
+      setProgress(null);
+    }
+  }
+
+  async function loadPaymentFromTeam(teamId: string) {
+    if (teamId === "manual") {
+      setSelectedTeamId("manual");
+      return;
+    }
+    const team = teams.find((t) => t.id === teamId);
+    if (!team) return;
+    setSelectedTeamId(teamId);
+    setTeamName(team.team_name ?? "");
+    setSerialNumber(team.team_number != null ? String(team.team_number) : "");
+    setProblemStatementId(team.problem_statement_id ?? "");
+
+    if (!team.payment_screenshot_url) {
+      setPaymentScreenshot(null);
+      setPaymentFilename("");
+      toast.error("No payment screenshot uploaded for this team.");
+      return;
+    }
+
+    setPaymentLoadingFromDb(true);
+    try {
+      const dataUrl = await fetchStorageAsDataUrl(team.payment_screenshot_url, PAYMENT_BUCKET);
+      if (!dataUrl) {
+        toast.error("Could not load the payment screenshot from storage.");
+        setPaymentScreenshot(null);
+        setPaymentFilename("");
+      } else {
+        setPaymentScreenshot(dataUrl);
+        setPaymentFilename(team.payment_screenshot_url.split("/").pop() ?? "screenshot");
+      }
+    } finally {
+      setPaymentLoadingFromDb(false);
     }
   }
 
