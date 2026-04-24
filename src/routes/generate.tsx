@@ -128,12 +128,20 @@ function GeneratePage() {
   const [paymentGenerating, setPaymentGenerating] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [exportMode, setExportMode] = useState<ExportMode>("sheet");
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // Payment screenshot section
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [teamSearch, setTeamSearch] = useState("");
+  const [selectedTeamId, setSelectedTeamId] = useState<string | "manual">("manual");
   const [teamName, setTeamName] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
   const [problemStatementId, setProblemStatementId] = useState("");
   const [paymentScreenshot, setPaymentScreenshot] = useState<string | null>(null);
   const [paymentFilename, setPaymentFilename] = useState("");
-  const cardExportRef = useRef<HTMLDivElement>(null);
+  const [paymentLoadingFromDb, setPaymentLoadingFromDb] = useState(false);
+
 
   useEffect(() => {
     setLayout(loadLayout());
