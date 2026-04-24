@@ -37,17 +37,17 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 // QR cache — many cards reuse the same code patterns rarely, but we cache by id.
 const qrCache = new Map<string, Promise<HTMLImageElement>>();
 function getQrImage(id: string): Promise<HTMLImageElement> {
-  let p = qrCache.get(id);
-  if (!p) {
-    p = QRCode.toDataURL(id, {
-      margin: 1,
-      width: 400,
-      color: { dark: "#000000", light: "#ffffff" },
-    }).then(loadImage);
-    qrCache.set(id, p);
-  }
+  const cached = qrCache.get(id);
+  if (cached) return cached;
+  const p = QRCode.toDataURL(id, {
+    margin: 1,
+    width: 400,
+    color: { dark: "#000000", light: "#ffffff" },
+  }).then(loadImage);
+  qrCache.set(id, p);
   return p;
 }
+
 
 // Photo cache by storage path / URL.
 const photoCache = new Map<string, Promise<HTMLImageElement | null>>();
