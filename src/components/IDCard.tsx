@@ -41,13 +41,14 @@ export function IDCard({ person, layout, width, className, embedPhoto }: Props) 
   useEffect(() => {
     let cancelled = false;
     (embedPhoto ? fetchPhotoAsDataUrl(person.photo) : resolvePhotoUrlAsync(person.photo))
-      .then((u) => {
+      .then((u: string | null) => {
         if (!cancelled) setPhotoUrl(u);
       });
     return () => {
       cancelled = true;
     };
   }, [person.photo, embedPhoto]);
+
 
   // NOTE: All colors below use plain hex/rgba — no oklch / Tailwind color
   // tokens — so html2canvas can rasterize this DOM cleanly.
