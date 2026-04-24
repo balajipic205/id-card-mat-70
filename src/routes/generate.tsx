@@ -242,34 +242,46 @@ function GeneratePage() {
     setSelected(new Set());
   }
 
-  async function renderCardImages() {
-    const container = cardExportRef.current;
-    if (!container) throw new Error("Export cards are not ready yet.");
-
+  async function renderCardImages(): Promise<string[]> {
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
 
-    await Promise.all(finalPeople.map((person) => fetchPhotoAsDataUrl(person.photo)));
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    await waitForImages(container);
+    // Pre-warm template, photos, QRs concurrently before render loop.
+    await prewarm(finalPeople);
 
-    const cardEls = Array.from(container.querySelectorAll<HTMLElement>("[data-export-card]"));
-    if (cardEls.length === 0) throw new Error("No cards available for export.");
+    const total = finalPeople.length;
+    setProgress({ done: 0, total });
 
-    const imageData: string[] = [];
-    for (const cardEl of cardEls) {
-      const canvas = await html2canvas(cardEl, {
-        backgroundColor: "#ffffff",
-        scale: EXPORT_SCALE,
-        useCORS: true,
-        allowTaint: false,
-        logging: false,
-        onclone: sanitizeClonedDocument,
-      });
-      imageData.push(canvas.toDataURL("image/jpeg", 0.95));
+    const out: string[] = new Array(total);
+    let nextIndex = 0;
+    let completed = 0;
+
+    async function worker() {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= total) return;
+        const person = finalPeople[i];
+        out[i] = await renderCardToDataUrl({
+          person,
+          layout,
+          widthPx: EXPORT_CARD_W_PX,
+        });
+        completed += 1;
+        if (completed % 5 === 0 || completed === total) {
+          setProgress({ done: completed, total });
+          // Yield so the UI can update progress.
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
     }
-    return imageData;
+
+    const workers = Array.from(
+      { length: Math.min(RENDER_CONCURRENCY, total) },
+      () => worker(),
+    );
+    await Promise.all(workers);
+    return out;
   }
 
   async function generatePdf() {
