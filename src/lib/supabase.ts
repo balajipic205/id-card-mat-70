@@ -69,6 +69,13 @@ export async function fetchStorageAsDataUrl(
   }
 }
 
+/** Back-compat alias for member photos. */
+export async function fetchPhotoAsDataUrl(
+  photo: string | null | undefined,
+): Promise<string | null> {
+  return fetchStorageAsDataUrl(photo, PHOTO_BUCKET);
+}
+
 export interface Member {
   id: string;
   unique_member_id: string;
@@ -81,3 +88,14 @@ export interface Member {
   photo_url: string | null;
   created_at: string | null;
 }
+
+export interface Team {
+  id: string;
+  team_number: number | null;
+  team_name: string;
+  problem_statement_id: string | null;
+  problem_statement_name: string | null;
+  payment_screenshot_url: string | null;
+  reference_id: string | null;
+}
+
