@@ -1,16 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Header } from "@/components/Header";
 import { AuthGate } from "@/components/AuthGate";
 import { IDCard, TEMPLATE_RATIO } from "@/components/IDCard";
 import { LayoutConfig, INITIAL_LAYOUT, loadLayout } from "@/lib/idcard-store";
-import { Member, supabase, fetchPhotoAsDataUrl } from "@/lib/supabase";
+import {
+  Member,
+  Team,
+  supabase,
+  fetchStorageAsDataUrl,
+  PAYMENT_BUCKET,
+} from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Toaster, toast } from "sonner";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { renderCardToDataUrl, prewarm } from "@/lib/render-card";
+
 
 export const Route = createFileRoute("/generate")({
   head: () => ({
@@ -54,8 +61,10 @@ const PER_PAGE = COLS * ROWS;
 const MARGIN_X = (A4_W - COLS * CARD_W_MM) / (COLS + 1);
 const MARGIN_Y = (A4_H - ROWS * CARD_H_MM) / (ROWS + 1);
 
-const EXPORT_CARD_W_PX = 360;
-const EXPORT_SCALE = 3.2;
+// Export resolution: ~300 DPI for a 75 mm wide card => ~886 px.
+const EXPORT_CARD_W_PX = 900;
+// Concurrent canvas renders.
+const RENDER_CONCURRENCY = 6;
 
 const PREVIEW_PX_PER_MM = 3.2;
 const PREVIEW_W = A4_W * PREVIEW_PX_PER_MM;
@@ -65,46 +74,6 @@ const PREVIEW_CELL_H = CARD_H_MM * PREVIEW_PX_PER_MM;
 const PREVIEW_CARD_W = PREVIEW_CELL_W;
 const PREVIEW_CARD_H = PREVIEW_CARD_W * TEMPLATE_RATIO;
 
-const SANITIZED_EXPORT_STYLE = `
-  :root, html, body, * {
-    --background: #ffffff;
-    --foreground: #000000;
-    --card: #ffffff;
-    --card-foreground: #000000;
-    --popover: #ffffff;
-    --popover-foreground: #000000;
-    --primary: #000000;
-    --primary-foreground: #ffffff;
-    --secondary: #f1f5f9;
-    --secondary-foreground: #000000;
-    --muted: #f1f5f9;
-    --muted-foreground: #475569;
-    --accent: #f1f5f9;
-    --accent-foreground: #000000;
-    --destructive: #ef4444;
-    --destructive-foreground: #ffffff;
-    --border: #e2e8f0;
-    --input: #e2e8f0;
-    --ring: #000000;
-  }
-  html, body {
-    color: #000 !important;
-    background: #fff !important;
-  }
-`;
-
-function sanitizeClonedDocument(doc: Document) {
-  const style = doc.createElement("style");
-  style.textContent = SANITIZED_EXPORT_STYLE;
-  doc.head.appendChild(style);
-
-  doc.querySelectorAll<HTMLElement>("*").forEach((el) => {
-    const inlineStyle = el.getAttribute("style");
-    if (inlineStyle?.includes("oklch")) {
-      el.setAttribute("style", inlineStyle.replace(/oklch\([^)]*\)/g, "#000"));
-    }
-  });
-}
 
 function chunkPeople(people: Person[]) {
   const out: Person[][] = [];
@@ -114,22 +83,8 @@ function chunkPeople(people: Person[]) {
   return out;
 }
 
-async function waitForImages(scope: ParentNode) {
-  const images = Array.from(scope.querySelectorAll("img"));
-  await Promise.all(
-    images.map(
-      (img) =>
-        new Promise<void>((resolve) => {
-          if (img.complete && img.naturalWidth > 0) {
-            resolve();
-            return;
-          }
-          img.addEventListener("load", () => resolve(), { once: true });
-          img.addEventListener("error", () => resolve(), { once: true });
-        }),
-    ),
-  );
-}
+
+
 
 async function loadImageElement(src: string) {
   return await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -159,12 +114,20 @@ function GeneratePage() {
   const [paymentGenerating, setPaymentGenerating] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [exportMode, setExportMode] = useState<ExportMode>("sheet");
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // Payment screenshot section
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [teamSearch, setTeamSearch] = useState("");
+  const [selectedTeamId, setSelectedTeamId] = useState<string | "manual">("manual");
   const [teamName, setTeamName] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
   const [problemStatementId, setProblemStatementId] = useState("");
   const [paymentScreenshot, setPaymentScreenshot] = useState<string | null>(null);
   const [paymentFilename, setPaymentFilename] = useState("");
-  const cardExportRef = useRef<HTMLDivElement>(null);
+  const [paymentLoadingFromDb, setPaymentLoadingFromDb] = useState(false);
+
 
   useEffect(() => {
     setLayout(loadLayout());
@@ -182,6 +145,28 @@ function GeneratePage() {
         if (error) toast.error("Failed to load members: " + error.message);
         setMembers((data as Member[]) ?? []);
         setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load teams (admin sees all via RLS).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setTeamsLoading(true);
+      const { data, error } = await supabase
+        .from("teams")
+        .select(
+          "id, team_number, team_name, problem_statement_id, problem_statement_name, payment_screenshot_url, reference_id",
+        )
+        .order("team_number", { ascending: true });
+      if (!cancelled) {
+        if (error) toast.error("Failed to load teams: " + error.message);
+        setTeams((data as Team[]) ?? []);
+        setTeamsLoading(false);
       }
     })();
     return () => {
@@ -243,34 +228,46 @@ function GeneratePage() {
     setSelected(new Set());
   }
 
-  async function renderCardImages() {
-    const container = cardExportRef.current;
-    if (!container) throw new Error("Export cards are not ready yet.");
-
+  async function renderCardImages(): Promise<string[]> {
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
 
-    await Promise.all(finalPeople.map((person) => fetchPhotoAsDataUrl(person.photo)));
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    await waitForImages(container);
+    // Pre-warm template, photos, QRs concurrently before render loop.
+    await prewarm(finalPeople);
 
-    const cardEls = Array.from(container.querySelectorAll<HTMLElement>("[data-export-card]"));
-    if (cardEls.length === 0) throw new Error("No cards available for export.");
+    const total = finalPeople.length;
+    setProgress({ done: 0, total });
 
-    const imageData: string[] = [];
-    for (const cardEl of cardEls) {
-      const canvas = await html2canvas(cardEl, {
-        backgroundColor: "#ffffff",
-        scale: EXPORT_SCALE,
-        useCORS: true,
-        allowTaint: false,
-        logging: false,
-        onclone: sanitizeClonedDocument,
-      });
-      imageData.push(canvas.toDataURL("image/jpeg", 0.95));
+    const out: string[] = new Array(total);
+    let nextIndex = 0;
+    let completed = 0;
+
+    async function worker() {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= total) return;
+        const person = finalPeople[i];
+        out[i] = await renderCardToDataUrl({
+          person,
+          layout,
+          widthPx: EXPORT_CARD_W_PX,
+        });
+        completed += 1;
+        if (completed % 5 === 0 || completed === total) {
+          setProgress({ done: completed, total });
+          // Yield so the UI can update progress.
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
     }
-    return imageData;
+
+    const workers = Array.from(
+      { length: Math.min(RENDER_CONCURRENCY, total) },
+      () => worker(),
+    );
+    await Promise.all(workers);
+    return out;
   }
 
   async function generatePdf() {
@@ -314,6 +311,42 @@ function GeneratePage() {
       toast.error("PDF generation failed: " + err.message);
     } finally {
       setGenerating(false);
+      setProgress(null);
+    }
+  }
+
+  async function loadPaymentFromTeam(teamId: string) {
+    if (teamId === "manual") {
+      setSelectedTeamId("manual");
+      return;
+    }
+    const team = teams.find((t) => t.id === teamId);
+    if (!team) return;
+    setSelectedTeamId(teamId);
+    setTeamName(team.team_name ?? "");
+    setSerialNumber(team.team_number != null ? String(team.team_number) : "");
+    setProblemStatementId(team.problem_statement_id ?? "");
+
+    if (!team.payment_screenshot_url) {
+      setPaymentScreenshot(null);
+      setPaymentFilename("");
+      toast.error("No payment screenshot uploaded for this team.");
+      return;
+    }
+
+    setPaymentLoadingFromDb(true);
+    try {
+      const dataUrl = await fetchStorageAsDataUrl(team.payment_screenshot_url, PAYMENT_BUCKET);
+      if (!dataUrl) {
+        toast.error("Could not load the payment screenshot from storage.");
+        setPaymentScreenshot(null);
+        setPaymentFilename("");
+      } else {
+        setPaymentScreenshot(dataUrl);
+        setPaymentFilename(team.payment_screenshot_url.split("/").pop() ?? "screenshot");
+      }
+    } finally {
+      setPaymentLoadingFromDb(false);
     }
   }
 
@@ -500,7 +533,12 @@ function GeneratePage() {
                 <option value="single">75 × 90 mm single card</option>
               </select>
               <Button onClick={generatePdf} disabled={generating || finalPeople.length === 0} size="lg">
-                {generating ? "Generating…" : "Download PDF"}
+                {generating
+                  ? progress
+                    ? `Rendering ${progress.done}/${progress.total}…`
+                    : "Generating…"
+                  : "Download PDF"}
+
               </Button>
             </div>
           </div>
@@ -595,9 +633,91 @@ function GeneratePage() {
                 Payment screenshot PDF
               </h2>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Upload the payment screenshot, then download a clean PDF with the team name,
-                serial number, and problem statement ID placed above it.
+                Pick a team from the database to auto-fill its details and pull
+                the payment screenshot directly from storage, or use Manual
+                upload to provide your own.
               </p>
+            </div>
+
+            <div className="mb-6 rounded-lg border border-border bg-muted/20 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Teams ({teams.length})
+                </h3>
+                <Input
+                  value={teamSearch}
+                  onChange={(e) => setTeamSearch(e.target.value)}
+                  placeholder="Search by name, number, or PS ID..."
+                  className="max-w-xs"
+                />
+              </div>
+              <div className="max-h-[260px] overflow-auto rounded-md border border-border bg-background">
+                {teamsLoading ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">Loading teams...</div>
+                ) : teams.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">No teams found.</div>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    <li
+                      className={
+                        "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 " +
+                        (selectedTeamId === "manual" ? "bg-muted/40" : "")
+                      }
+                    >
+                      <button
+                        type="button"
+                        onClick={() => loadPaymentFromTeam("manual")}
+                        className="flex-1 text-left text-sm font-medium"
+                      >
+                        Manual upload (no team)
+                      </button>
+                    </li>
+                    {teams
+                      .filter((t) => {
+                        const q = teamSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          (t.team_name ?? "").toLowerCase().includes(q) ||
+                          String(t.team_number ?? "").includes(q) ||
+                          (t.problem_statement_id ?? "").toLowerCase().includes(q)
+                        );
+                      })
+                      .map((t) => (
+                        <li
+                          key={t.id}
+                          className={
+                            "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 " +
+                            (selectedTeamId === t.id ? "bg-muted/40" : "")
+                          }
+                        >
+                          <button
+                            type="button"
+                            onClick={() => loadPaymentFromTeam(t.id)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex h-5 min-w-[2rem] items-center justify-center rounded bg-primary/15 px-1.5 font-mono text-xs">
+                                #{t.team_number ?? "?"}
+                              </span>
+                              <span className="truncate text-sm font-medium">{t.team_name}</span>
+                              {!t.payment_screenshot_url && (
+                                <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
+                                  no screenshot
+                                </span>
+                              )}
+                            </div>
+                            <div className="truncate font-mono text-xs text-muted-foreground">
+                              {t.problem_statement_id ?? "-"}
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+              {paymentLoadingFromDb && (
+                <div className="mt-2 text-xs text-muted-foreground">Loading screenshot from storage...</div>
+              )}
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
@@ -665,19 +785,8 @@ function GeneratePage() {
             </div>
           </section>
         </main>
-
-        <div
-          ref={cardExportRef}
-          aria-hidden="true"
-          style={{ position: "fixed", left: -99999, top: 0, pointerEvents: "none", display: "grid", gap: 24 }}
-        >
-          {finalPeople.map((person, idx) => (
-            <div key={`${person.id}-${idx}`} data-export-card={idx} style={{ width: `${EXPORT_CARD_W_PX}px` }}>
-              <IDCard person={person} layout={layout} width={EXPORT_CARD_W_PX} embedPhoto />
-            </div>
-          ))}
-        </div>
       </div>
     </AuthGate>
   );
 }
+
