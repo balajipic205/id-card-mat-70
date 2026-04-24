@@ -192,7 +192,7 @@ function GeneratePage() {
       for (let i = 0; i < pageEls.length; i++) {
         const canvas = await html2canvas(pageEls[i], {
           backgroundColor: "#ffffff",
-          scale: 2,
+          scale: PRINT_SCALE,
           useCORS: true,
           allowTaint: false,
           logging: false,
