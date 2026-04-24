@@ -51,10 +51,13 @@ const PER_PAGE = COLS * ROWS;
 const MARGIN_X = (A4_W - COLS * CARD_W_MM) / (COLS + 1);
 const MARGIN_Y = (A4_H - ROWS * CARD_H_MM) / (ROWS + 1);
 
-// Render at 300 DPI for print
+// Browser CSS is 96 DPI. Render the card at exactly 75mm in CSS pixels so it
+// fits the mm-sized grid cell without overflow/clipping. html2canvas `scale`
+// then upsamples it for print quality (~300 DPI when scale ~3.125).
 const MM_PER_INCH = 25.4;
-const DPI = 300;
-const CARD_PX_W = Math.round((CARD_W_MM / MM_PER_INCH) * DPI);
+const CSS_DPI = 96;
+const CARD_PX_W = (CARD_W_MM / MM_PER_INCH) * CSS_DPI; // ≈ 283.46px
+const PRINT_SCALE = 3.2; // ≈ 307 DPI output
 
 // On-screen A4 preview pixel size (3.2 px / mm ≈ 672x950 — fits 959 viewport).
 const PREVIEW_PX_PER_MM = 3.2;
