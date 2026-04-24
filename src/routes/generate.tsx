@@ -166,6 +166,28 @@ function GeneratePage() {
     };
   }, []);
 
+  // Load teams (admin sees all via RLS).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setTeamsLoading(true);
+      const { data, error } = await supabase
+        .from("teams")
+        .select(
+          "id, team_number, team_name, problem_statement_id, problem_statement_name, payment_screenshot_url, reference_id",
+        )
+        .order("team_number", { ascending: true });
+      if (!cancelled) {
+        if (error) toast.error("Failed to load teams: " + error.message);
+        setTeams((data as Team[]) ?? []);
+        setTeamsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const peopleFromSelection: Person[] = useMemo(
     () =>
       members
