@@ -1,16 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Header } from "@/components/Header";
 import { AuthGate } from "@/components/AuthGate";
 import { IDCard, TEMPLATE_RATIO } from "@/components/IDCard";
 import { LayoutConfig, INITIAL_LAYOUT, loadLayout } from "@/lib/idcard-store";
-import { Member, supabase, fetchPhotoAsDataUrl } from "@/lib/supabase";
+import {
+  Member,
+  Team,
+  supabase,
+  fetchStorageAsDataUrl,
+  PAYMENT_BUCKET,
+} from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Toaster, toast } from "sonner";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { renderCardToDataUrl, prewarm } from "@/lib/render-card";
+
 
 export const Route = createFileRoute("/generate")({
   head: () => ({
