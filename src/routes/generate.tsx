@@ -83,22 +83,8 @@ function chunkPeople(people: Person[]) {
   return out;
 }
 
-async function waitForImages(scope: ParentNode) {
-  const images = Array.from(scope.querySelectorAll("img"));
-  await Promise.all(
-    images.map(
-      (img) =>
-        new Promise<void>((resolve) => {
-          if (img.complete && img.naturalWidth > 0) {
-            resolve();
-            return;
-          }
-          img.addEventListener("load", () => resolve(), { once: true });
-          img.addEventListener("error", () => resolve(), { once: true });
-        }),
-    ),
-  );
-}
+
+
 
 async function loadImageElement(src: string) {
   return await new Promise<HTMLImageElement>((resolve, reject) => {
