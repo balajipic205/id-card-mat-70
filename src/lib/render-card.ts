@@ -5,7 +5,7 @@
 // preview stays the source of truth.
 
 import QRCode from "qrcode";
-import templateImg from "@/assets/id-template.png";
+import templateImg from "@/assets/id-template.svg";
 import { LayoutConfig } from "@/lib/idcard-store";
 import { TEMPLATE_RATIO } from "@/components/IDCard";
 import { fetchPhotoAsDataUrl } from "@/lib/supabase";
