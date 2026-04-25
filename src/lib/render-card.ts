@@ -16,6 +16,9 @@ function loadTemplate(): Promise<HTMLImageElement> {
     templatePromise = new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
+      // Force a high intrinsic size so SVG rasterizes crisply on the canvas.
+      img.width = 1200;
+      img.height = Math.round(1200 * TEMPLATE_RATIO);
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error("Failed to load template image"));
       img.src = templateImg;
