@@ -176,6 +176,11 @@ function ExportPage() {
                 <>
                   <span className="font-semibold">{teams.length}</span> teams ·{" "}
                   <span className="font-semibold">{members.length}</span> members
+                  {resolving && (
+                    <span className="ml-2 text-muted-foreground">
+                      · generating image URLs…
+                    </span>
+                  )}
                 </>
               )}
             </div>
