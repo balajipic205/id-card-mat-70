@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/Header";
 import { AuthGate } from "@/components/AuthGate";
-import { supabase } from "@/lib/supabase";
+import { supabase, PHOTO_BUCKET, PAYMENT_BUCKET } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Toaster, toast } from "sonner";
 
