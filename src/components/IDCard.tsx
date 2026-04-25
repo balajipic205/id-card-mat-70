@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import templateImg from "@/assets/id-template.png";
+import templateImg from "@/assets/id-template.svg";
 import { LayoutConfig } from "@/lib/idcard-store";
 import { resolvePhotoUrlAsync, fetchPhotoAsDataUrl } from "@/lib/supabase";
 
