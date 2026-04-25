@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 const links = [
   { to: "/", label: "Editor" },
   { to: "/generate", label: "Generate Sheet" },
+  { to: "/export", label: "Export Data" },
 ] as const;
 
 export function Header() {
