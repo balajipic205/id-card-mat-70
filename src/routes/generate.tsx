@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/Header";
 import { AuthGate } from "@/components/AuthGate";
 import { IDCard, TEMPLATE_RATIO } from "@/components/IDCard";
@@ -26,7 +26,7 @@ export const Route = createFileRoute("/generate")({
       {
         name: "description",
         content:
-          "Generate A4 or single-card PDFs for Makeathon 7.0 participant ID cards and payment screenshot documents.",
+          "Generate A4 or single-card PDFs for Makeathon 7.0 participant ID cards and bulk payment screenshot PDFs.",
       },
     ],
   }),
@@ -61,9 +61,7 @@ const PER_PAGE = COLS * ROWS;
 const MARGIN_X = (A4_W - COLS * CARD_W_MM) / (COLS + 1);
 const MARGIN_Y = (A4_H - ROWS * CARD_H_MM) / (ROWS + 1);
 
-// Export resolution: ~300 DPI for a 75 mm wide card => ~886 px.
 const EXPORT_CARD_W_PX = 900;
-// Concurrent canvas renders.
 const RENDER_CONCURRENCY = 6;
 
 const PREVIEW_PX_PER_MM = 3.2;
@@ -74,6 +72,7 @@ const PREVIEW_CELL_H = CARD_H_MM * PREVIEW_PX_PER_MM;
 const PREVIEW_CARD_W = PREVIEW_CELL_W;
 const PREVIEW_CARD_H = PREVIEW_CARD_W * TEMPLATE_RATIO;
 
+const BATCH_SIZE = 20;
 
 function chunkPeople(people: Person[]) {
   const out: Person[][] = [];
@@ -82,9 +81,6 @@ function chunkPeople(people: Person[]) {
   }
   return out;
 }
-
-
-
 
 async function loadImageElement(src: string) {
   return await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -111,23 +107,23 @@ function GeneratePage() {
   const [jsonText, setJsonText] = useState("");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [paymentGenerating, setPaymentGenerating] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [exportMode, setExportMode] = useState<ExportMode>("sheet");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
-  // Payment screenshot section
+  // Range selection (1-indexed, inclusive) over finalPeople.
+  const [rangeFrom, setRangeFrom] = useState<string>("");
+  const [rangeTo, setRangeTo] = useState<string>("");
+
+  // Payment screenshots — bulk only, fully from database.
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(true);
-  const [teamSearch, setTeamSearch] = useState("");
-  const [selectedTeamId, setSelectedTeamId] = useState<string | "manual">("manual");
-  const [teamName, setTeamName] = useState("");
-  const [serialNumber, setSerialNumber] = useState("");
-  const [problemStatementId, setProblemStatementId] = useState("");
-  const [paymentScreenshot, setPaymentScreenshot] = useState<string | null>(null);
-  const [paymentFilename, setPaymentFilename] = useState("");
-  const [paymentLoadingFromDb, setPaymentLoadingFromDb] = useState(false);
-
+  const [paymentGenerating, setPaymentGenerating] = useState(false);
+  const [paymentProgress, setPaymentProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const [paymentRangeFrom, setPaymentRangeFrom] = useState<string>("");
+  const [paymentRangeTo, setPaymentRangeTo] = useState<string>("");
 
   useEffect(() => {
     setLayout(loadLayout());
@@ -152,7 +148,6 @@ function GeneratePage() {
     };
   }, []);
 
-  // Load teams (admin sees all via RLS).
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -199,10 +194,19 @@ function GeneratePage() {
     }
   }, [jsonText]);
 
-  const finalPeople = useMemo(
+  const allPeople = useMemo(
     () => [...peopleFromSelection, ...peopleFromJson],
     [peopleFromSelection, peopleFromJson],
   );
+
+  // Apply range filter (1-indexed). Empty = full list.
+  const finalPeople = useMemo(() => {
+    const total = allPeople.length;
+    const fromN = rangeFrom.trim() === "" ? 1 : Math.max(1, parseInt(rangeFrom, 10) || 1);
+    const toN = rangeTo.trim() === "" ? total : Math.min(total, parseInt(rangeTo, 10) || total);
+    if (fromN > toN) return [];
+    return allPeople.slice(fromN - 1, toN);
+  }, [allPeople, rangeFrom, rangeTo]);
 
   const sheetPages = useMemo(() => chunkPeople(finalPeople), [finalPeople]);
   const previewPageCount = exportMode === "sheet" ? sheetPages.length : finalPeople.length;
@@ -228,12 +232,19 @@ function GeneratePage() {
     setSelected(new Set());
   }
 
-  async function renderCardImages(): Promise<string[]> {
-    if (document.fonts?.ready) {
-      await document.fonts.ready;
-    }
+  function applyBatch(batchIdx: number) {
+    const total = allPeople.length;
+    const from = batchIdx * BATCH_SIZE + 1;
+    const to = Math.min(total, (batchIdx + 1) * BATCH_SIZE);
+    setRangeFrom(String(from));
+    setRangeTo(String(to));
+    setPageIndex(0);
+  }
 
-    // Pre-warm template, photos, QRs concurrently before render loop.
+  const cardBatchCount = Math.max(1, Math.ceil(allPeople.length / BATCH_SIZE));
+
+  async function renderCardImages(): Promise<string[]> {
+    if (document.fonts?.ready) await document.fonts.ready;
     await prewarm(finalPeople);
 
     const total = finalPeople.length;
@@ -256,7 +267,6 @@ function GeneratePage() {
         completed += 1;
         if (completed % 5 === 0 || completed === total) {
           setProgress({ done: completed, total });
-          // Yield so the UI can update progress.
           await new Promise((r) => setTimeout(r, 0));
         }
       }
@@ -281,6 +291,8 @@ function GeneratePage() {
       toast.message("Preparing cards…");
       const cardImages = await renderCardImages();
       const filenameDate = new Date().toISOString().slice(0, 10);
+      const rangeLabel =
+        rangeFrom || rangeTo ? `-${rangeFrom || 1}-${rangeTo || allPeople.length}` : "";
 
       if (exportMode === "sheet") {
         const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
@@ -294,16 +306,20 @@ function GeneratePage() {
           const y = yCell + (CARD_H_MM - CARD_RENDER_H_MM) / 2;
           pdf.addImage(imgData, "JPEG", x, y, CARD_W_MM, CARD_RENDER_H_MM, undefined, "FAST");
         });
-        pdf.save(`makeathon-id-cards-a4-${filenameDate}.pdf`);
+        pdf.save(`makeathon-id-cards-a4${rangeLabel}-${filenameDate}.pdf`);
         toast.success(`Generated ${Math.max(1, sheetPages.length)} A4 page(s).`);
       } else {
-        const pdf = new jsPDF({ unit: "mm", format: [CARD_W_MM, CARD_H_MM], orientation: "portrait" });
+        const pdf = new jsPDF({
+          unit: "mm",
+          format: [CARD_W_MM, CARD_H_MM],
+          orientation: "portrait",
+        });
         cardImages.forEach((imgData, idx) => {
           if (idx > 0) pdf.addPage([CARD_W_MM, CARD_H_MM], "portrait");
           const y = (CARD_H_MM - CARD_RENDER_H_MM) / 2;
           pdf.addImage(imgData, "JPEG", 0, y, CARD_W_MM, CARD_RENDER_H_MM, undefined, "FAST");
         });
-        pdf.save(`makeathon-id-cards-single-${filenameDate}.pdf`);
+        pdf.save(`makeathon-id-cards-single${rangeLabel}-${filenameDate}.pdf`);
         toast.success(`Generated ${cardImages.length} single-card page(s).`);
       }
     } catch (err: any) {
@@ -315,66 +331,38 @@ function GeneratePage() {
     }
   }
 
-  async function loadPaymentFromTeam(teamId: string) {
-    if (teamId === "manual") {
-      setSelectedTeamId("manual");
-      return;
-    }
-    const team = teams.find((t) => t.id === teamId);
-    if (!team) return;
-    setSelectedTeamId(teamId);
-    setTeamName(team.team_name ?? "");
-    setSerialNumber(team.team_number != null ? String(team.team_number) : "");
-    setProblemStatementId(team.problem_statement_id ?? "");
+  // ---------- Payment screenshots (bulk from DB) ----------
 
-    if (!team.payment_screenshot_url) {
-      setPaymentScreenshot(null);
-      setPaymentFilename("");
-      toast.error("No payment screenshot uploaded for this team.");
-      return;
-    }
+  const paymentBatchCount = Math.max(1, Math.ceil(teams.length / BATCH_SIZE));
 
-    setPaymentLoadingFromDb(true);
-    try {
-      const dataUrl = await fetchStorageAsDataUrl(team.payment_screenshot_url, PAYMENT_BUCKET);
-      if (!dataUrl) {
-        toast.error("Could not load the payment screenshot from storage.");
-        setPaymentScreenshot(null);
-        setPaymentFilename("");
-      } else {
-        setPaymentScreenshot(dataUrl);
-        setPaymentFilename(team.payment_screenshot_url.split("/").pop() ?? "screenshot");
-      }
-    } finally {
-      setPaymentLoadingFromDb(false);
-    }
+  function applyPaymentBatch(batchIdx: number) {
+    const total = teams.length;
+    const from = batchIdx * BATCH_SIZE + 1;
+    const to = Math.min(total, (batchIdx + 1) * BATCH_SIZE);
+    setPaymentRangeFrom(String(from));
+    setPaymentRangeTo(String(to));
   }
 
-  async function handlePaymentScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setPaymentScreenshot(null);
-      setPaymentFilename("");
-      return;
-    }
+  const selectedTeams = useMemo(() => {
+    const total = teams.length;
+    const fromN =
+      paymentRangeFrom.trim() === "" ? 1 : Math.max(1, parseInt(paymentRangeFrom, 10) || 1);
+    const toN =
+      paymentRangeTo.trim() === "" ? total : Math.min(total, parseInt(paymentRangeTo, 10) || total);
+    if (fromN > toN) return [];
+    return teams.slice(fromN - 1, toN);
+  }, [teams, paymentRangeFrom, paymentRangeTo]);
 
-    setPaymentFilename(file.name);
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
-      reader.onerror = () => reject(new Error("Failed to read screenshot."));
-      reader.readAsDataURL(file);
-    });
-    setPaymentScreenshot(dataUrl);
-  }
-
-  async function generatePaymentPdf() {
-    if (!teamName.trim() || !serialNumber.trim() || !problemStatementId.trim() || !paymentScreenshot) {
-      toast.error("Add the team name, serial number, problem statement ID and screenshot.");
+  async function generateBulkPaymentPdf() {
+    const targets = selectedTeams.filter((t) => t.payment_screenshot_url);
+    const skipped = selectedTeams.length - targets.length;
+    if (targets.length === 0) {
+      toast.error("No teams with payment screenshots in the selected range.");
       return;
     }
 
     setPaymentGenerating(true);
+    setPaymentProgress({ done: 0, total: targets.length });
     try {
       const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
       const pageW = pdf.internal.pageSize.getWidth();
@@ -382,45 +370,78 @@ function GeneratePage() {
       const sidePad = 14;
       const contentW = pageW - sidePad * 2;
 
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, 0, pageW, pageH, "F");
+      let firstPage = true;
+      let done = 0;
 
-      let cursorY = 18;
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(18);
-      const teamLines = pdf.splitTextToSize(teamName.trim(), contentW);
-      pdf.text(teamLines, sidePad, cursorY);
-      cursorY += teamLines.length * 8;
+      for (const team of targets) {
+        const dataUrl = await fetchStorageAsDataUrl(
+          team.payment_screenshot_url!,
+          PAYMENT_BUCKET,
+        );
+        if (!dataUrl) {
+          done++;
+          setPaymentProgress({ done, total: targets.length });
+          continue;
+        }
 
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(12);
-      pdf.text(`Serial Number: ${serialNumber.trim()}`, sidePad, cursorY);
-      cursorY += 7;
-      pdf.text(`Problem Statement ID: ${problemStatementId.trim()}`, sidePad, cursorY);
-      cursorY += 8;
+        if (!firstPage) pdf.addPage("a4", "portrait");
+        firstPage = false;
 
-      const screenshotImage = await loadImageElement(paymentScreenshot);
-      const fitted = fitWithin(contentW, pageH - cursorY - 14, screenshotImage.width, screenshotImage.height);
-      const imageX = (pageW - fitted.width) / 2;
-      pdf.addImage(
-        paymentScreenshot,
-        getImageFormat(paymentScreenshot),
-        imageX,
-        cursorY,
-        fitted.width,
-        fitted.height,
-        undefined,
-        "FAST",
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, 0, pageW, pageH, "F");
+
+        let cursorY = 18;
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(18);
+        const teamLines = pdf.splitTextToSize(team.team_name ?? "Team", contentW);
+        pdf.text(teamLines, sidePad, cursorY);
+        cursorY += teamLines.length * 8;
+
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(12);
+        pdf.text(
+          `Serial Number: ${team.team_number != null ? team.team_number : "—"}`,
+          sidePad,
+          cursorY,
+        );
+        cursorY += 7;
+        pdf.text(`Problem Statement ID: ${team.problem_statement_id ?? "—"}`, sidePad, cursorY);
+        cursorY += 8;
+
+        try {
+          const img = await loadImageElement(dataUrl);
+          const fitted = fitWithin(contentW, pageH - cursorY - 14, img.width, img.height);
+          const imageX = (pageW - fitted.width) / 2;
+          pdf.addImage(
+            dataUrl,
+            getImageFormat(dataUrl),
+            imageX,
+            cursorY,
+            fitted.width,
+            fitted.height,
+            undefined,
+            "FAST",
+          );
+        } catch (e) {
+          pdf.text("(Could not render screenshot)", sidePad, cursorY + 10);
+        }
+
+        done++;
+        setPaymentProgress({ done, total: targets.length });
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      const rangeLabel = `${paymentRangeFrom || 1}-${paymentRangeTo || teams.length}`;
+      pdf.save(`payment-screenshots-${rangeLabel}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast.success(
+        `Generated ${targets.length} page(s)${skipped ? ` (${skipped} skipped — no screenshot)` : ""}.`,
       );
-
-      const safeName = teamName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "team";
-      pdf.save(`payment-screenshot-${safeName}.pdf`);
-      toast.success("Payment screenshot PDF downloaded.");
     } catch (err: any) {
       console.error(err);
-      toast.error("Payment PDF generation failed: " + err.message);
+      toast.error("Bulk payment PDF failed: " + err.message);
     } finally {
       setPaymentGenerating(false);
+      setPaymentProgress(null);
     }
   }
 
@@ -436,9 +457,9 @@ function GeneratePage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold tracking-tight">Generate Print Sheet</h1>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Pick participants and download either an <strong>A4 sheet</strong> or a
-              <strong> single 75 × 90 mm card PDF</strong>. The export now uses the same
-              card rendering as the editor so the saved name alignment stays consistent.
+              Pick participants and download either an <strong>A4 sheet</strong> or a{" "}
+              <strong>single 75 × 90 mm card PDF</strong>. Use the range controls
+              to download a slice (e.g. cards 1–20).
             </p>
           </div>
 
@@ -461,11 +482,16 @@ function GeneratePage() {
                 {loading ? (
                   <div className="p-6 text-center text-sm text-muted-foreground">Loading…</div>
                 ) : members.length === 0 ? (
-                  <div className="p-6 text-center text-sm text-muted-foreground">No members found.</div>
+                  <div className="p-6 text-center text-sm text-muted-foreground">
+                    No members found.
+                  </div>
                 ) : (
                   <ul className="divide-y divide-border">
                     {members.map((m) => (
-                      <li key={m.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50">
+                      <li
+                        key={m.id}
+                        className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50"
+                      >
                         <input
                           type="checkbox"
                           checked={selected.has(m.id)}
@@ -483,7 +509,9 @@ function GeneratePage() {
                   </ul>
                 )}
               </div>
-              <div className="mt-2 text-xs text-muted-foreground">{selected.size} selected from database.</div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                {selected.size} selected from database.
+              </div>
             </section>
 
             <section className="rounded-lg border border-border bg-card p-5">
@@ -491,7 +519,8 @@ function GeneratePage() {
                 Bulk JSON entry
               </h2>
               <p className="mb-2 text-xs text-muted-foreground">
-                Paste an array of objects. Required: <code>id</code> and <code>name</code>. Optional:
+                Paste an array of objects. Required: <code>id</code> and <code>name</code>.
+                Optional:
                 <code> photo</code>.
               </p>
               <Textarea
@@ -504,12 +533,79 @@ function GeneratePage() {
                 <Button size="sm" variant="outline" onClick={() => setJsonText(EXAMPLE_JSON)}>
                   Load example
                 </Button>
-                <span className="text-xs text-muted-foreground">{peopleFromJson.length} parsed</span>
+                <span className="text-xs text-muted-foreground">
+                  {peopleFromJson.length} parsed
+                </span>
               </div>
             </section>
           </div>
 
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-5">
+          {/* Range selector */}
+          <div className="mt-6 rounded-lg border border-border bg-card p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Range ({allPeople.length} total)
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Download a specific slice. Leave both empty to include everyone.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: cardBatchCount }, (_, i) => {
+                  const from = i * BATCH_SIZE + 1;
+                  const to = Math.min(allPeople.length, (i + 1) * BATCH_SIZE);
+                  return (
+                    <Button
+                      key={i}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => applyBatch(i)}
+                      disabled={allPeople.length === 0}
+                    >
+                      {from}–{to}
+                    </Button>
+                  );
+                })}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setRangeFrom("");
+                    setRangeTo("");
+                    setPageIndex(0);
+                  }}
+                >
+                  All
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-sm">From</label>
+              <Input
+                type="number"
+                min={1}
+                value={rangeFrom}
+                onChange={(e) => setRangeFrom(e.target.value)}
+                placeholder="1"
+                className="w-28"
+              />
+              <label className="text-sm">To</label>
+              <Input
+                type="number"
+                min={1}
+                value={rangeTo}
+                onChange={(e) => setRangeTo(e.target.value)}
+                placeholder={String(allPeople.length || 1)}
+                className="w-28"
+              />
+              <span className="text-xs text-muted-foreground">
+                Selected: {finalPeople.length} card(s)
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-5">
             <div className="space-y-1">
               <div className="text-sm font-semibold">Total: {finalPeople.length} card(s)</div>
               <div className="text-xs text-muted-foreground">
@@ -532,13 +628,16 @@ function GeneratePage() {
                 <option value="sheet">A4 sheet</option>
                 <option value="single">75 × 90 mm single card</option>
               </select>
-              <Button onClick={generatePdf} disabled={generating || finalPeople.length === 0} size="lg">
+              <Button
+                onClick={generatePdf}
+                disabled={generating || finalPeople.length === 0}
+                size="lg"
+              >
                 {generating
                   ? progress
                     ? `Rendering ${progress.done}/${progress.total}…`
                     : "Generating…"
                   : "Download PDF"}
-
               </Button>
             </div>
           </div>
@@ -564,7 +663,9 @@ function GeneratePage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setPageIndex((i) => Math.min(previewPageCount - 1, i + 1))}
+                    onClick={() =>
+                      setPageIndex((i) => Math.min(previewPageCount - 1, i + 1))
+                    }
                     disabled={pageIndex >= previewPageCount - 1}
                   >
                     Next →
@@ -600,7 +701,12 @@ function GeneratePage() {
                           justifyContent: "center",
                         }}
                       >
-                        <div style={{ width: `${PREVIEW_CARD_W}px`, height: `${PREVIEW_CARD_H}px` }}>
+                        <div
+                          style={{
+                            width: `${PREVIEW_CARD_W}px`,
+                            height: `${PREVIEW_CARD_H}px`,
+                          }}
+                        >
                           <IDCard person={p} layout={layout} width={PREVIEW_CARD_W} />
                         </div>
                       </div>
@@ -618,8 +724,14 @@ function GeneratePage() {
                       boxShadow: "0 10px 40px rgba(0,0,0,0.4)",
                     }}
                   >
-                    <div style={{ width: `${PREVIEW_CARD_W}px`, height: `${PREVIEW_CARD_H}px` }}>
-                      <IDCard person={currentSinglePerson} layout={layout} width={PREVIEW_CARD_W} />
+                    <div
+                      style={{ width: `${PREVIEW_CARD_W}px`, height: `${PREVIEW_CARD_H}px` }}
+                    >
+                      <IDCard
+                        person={currentSinglePerson}
+                        layout={layout}
+                        width={PREVIEW_CARD_W}
+                      />
                     </div>
                   </div>
                 ) : null}
@@ -627,161 +739,140 @@ function GeneratePage() {
             </section>
           )}
 
-          <section className="mt-10 rounded-lg border border-border bg-card p-5">
+          {/* ============ Bulk payment screenshot section ============ */}
+          <section className="mt-12 rounded-lg border border-border bg-card p-5">
             <div className="mb-5">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Payment screenshot PDF
-              </h2>
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Pick a team from the database to auto-fill its details and pull
-                the payment screenshot directly from storage, or use Manual
-                upload to provide your own.
+              <h2 className="text-2xl font-bold tracking-tight">Payment Screenshots (Bulk)</h2>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                Download payment screenshots for a range of teams as a single
+                PDF (one team per page) — pulled directly from the database.
+                Teams without an uploaded screenshot are skipped automatically.
               </p>
             </div>
 
-            <div className="mb-6 rounded-lg border border-border bg-muted/20 p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                  Teams ({teams.length})
-                </h3>
-                <Input
-                  value={teamSearch}
-                  onChange={(e) => setTeamSearch(e.target.value)}
-                  placeholder="Search by name, number, or PS ID..."
-                  className="max-w-xs"
-                />
-              </div>
-              <div className="max-h-[260px] overflow-auto rounded-md border border-border bg-background">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm">
                 {teamsLoading ? (
-                  <div className="p-6 text-center text-sm text-muted-foreground">Loading teams...</div>
-                ) : teams.length === 0 ? (
-                  <div className="p-6 text-center text-sm text-muted-foreground">No teams found.</div>
+                  <span className="text-muted-foreground">Loading teams…</span>
                 ) : (
-                  <ul className="divide-y divide-border">
-                    <li
-                      className={
-                        "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 " +
-                        (selectedTeamId === "manual" ? "bg-muted/40" : "")
-                      }
-                    >
-                      <button
-                        type="button"
-                        onClick={() => loadPaymentFromTeam("manual")}
-                        className="flex-1 text-left text-sm font-medium"
-                      >
-                        Manual upload (no team)
-                      </button>
-                    </li>
-                    {teams
-                      .filter((t) => {
-                        const q = teamSearch.trim().toLowerCase();
-                        if (!q) return true;
-                        return (
-                          (t.team_name ?? "").toLowerCase().includes(q) ||
-                          String(t.team_number ?? "").includes(q) ||
-                          (t.problem_statement_id ?? "").toLowerCase().includes(q)
-                        );
-                      })
-                      .map((t) => (
-                        <li
-                          key={t.id}
-                          className={
-                            "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 " +
-                            (selectedTeamId === t.id ? "bg-muted/40" : "")
-                          }
-                        >
-                          <button
-                            type="button"
-                            onClick={() => loadPaymentFromTeam(t.id)}
-                            className="min-w-0 flex-1 text-left"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex h-5 min-w-[2rem] items-center justify-center rounded bg-primary/15 px-1.5 font-mono text-xs">
-                                #{t.team_number ?? "?"}
-                              </span>
-                              <span className="truncate text-sm font-medium">{t.team_name}</span>
-                              {!t.payment_screenshot_url && (
-                                <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
-                                  no screenshot
-                                </span>
-                              )}
-                            </div>
-                            <div className="truncate font-mono text-xs text-muted-foreground">
-                              {t.problem_statement_id ?? "-"}
-                            </div>
-                          </button>
-                        </li>
-                      ))}
-                  </ul>
+                  <>
+                    <span className="font-semibold">{teams.length}</span> teams ·{" "}
+                    <span className="font-semibold">
+                      {teams.filter((t) => t.payment_screenshot_url).length}
+                    </span>{" "}
+                    with screenshots
+                  </>
                 )}
               </div>
-              {paymentLoadingFromDb && (
-                <div className="mt-2 text-xs text-muted-foreground">Loading screenshot from storage...</div>
-              )}
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-medium">Team name</label>
-                  <Input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="Sentinels" />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium">Serial number</label>
-                  <Input
-                    value={serialNumber}
-                    onChange={(e) => setSerialNumber(e.target.value)}
-                    placeholder="SR-001"
-                  />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium">Problem statement ID</label>
-                  <Input
-                    value={problemStatementId}
-                    onChange={(e) => setProblemStatementId(e.target.value)}
-                    placeholder="HW0108"
-                  />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium">Payment screenshot</label>
-                  <Input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePaymentScreenshotChange} />
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    {paymentFilename || "Upload a screenshot file to include in the PDF."}
-                  </div>
-                </div>
-                <Button onClick={generatePaymentPdf} disabled={paymentGenerating}>
-                  {paymentGenerating ? "Generating…" : "Download payment PDF"}
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: paymentBatchCount }, (_, i) => {
+                  const from = i * BATCH_SIZE + 1;
+                  const to = Math.min(teams.length, (i + 1) * BATCH_SIZE);
+                  return (
+                    <Button
+                      key={i}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => applyPaymentBatch(i)}
+                      disabled={teams.length === 0}
+                    >
+                      {from}–{to}
+                    </Button>
+                  );
+                })}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPaymentRangeFrom("");
+                    setPaymentRangeTo("");
+                  }}
+                >
+                  All
                 </Button>
               </div>
+            </div>
 
-              <div className="rounded-lg border border-border bg-muted/20 p-4">
-                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Preview
-                </div>
-                <div className="rounded-md border border-border bg-background p-4">
-                  <div className="border-b border-border pb-3">
-                    <div className="text-lg font-semibold">{teamName || "Team name"}</div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      Serial Number: {serialNumber || "—"}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Problem Statement ID: {problemStatementId || "—"}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex min-h-[360px] items-center justify-center rounded-md border border-dashed border-border bg-muted/20 p-4">
-                    {paymentScreenshot ? (
-                      <img
-                        src={paymentScreenshot}
-                        alt="Payment screenshot preview"
-                        className="max-h-[520px] max-w-full rounded-md object-contain shadow-lg"
-                      />
-                    ) : (
-                      <div className="text-sm text-muted-foreground">Payment screenshot preview will appear here.</div>
-                    )}
-                  </div>
-                </div>
+            <div className="mb-5 flex flex-wrap items-center gap-3">
+              <label className="text-sm">From</label>
+              <Input
+                type="number"
+                min={1}
+                value={paymentRangeFrom}
+                onChange={(e) => setPaymentRangeFrom(e.target.value)}
+                placeholder="1"
+                className="w-28"
+              />
+              <label className="text-sm">To</label>
+              <Input
+                type="number"
+                min={1}
+                value={paymentRangeTo}
+                onChange={(e) => setPaymentRangeTo(e.target.value)}
+                placeholder={String(teams.length || 1)}
+                className="w-28"
+              />
+              <span className="text-xs text-muted-foreground">
+                Selected: {selectedTeams.length} team(s) ·{" "}
+                {selectedTeams.filter((t) => t.payment_screenshot_url).length} with screenshot
+              </span>
+              <div className="ml-auto">
+                <Button
+                  onClick={generateBulkPaymentPdf}
+                  disabled={paymentGenerating || selectedTeams.length === 0}
+                  size="lg"
+                >
+                  {paymentGenerating
+                    ? paymentProgress
+                      ? `Rendering ${paymentProgress.done}/${paymentProgress.total}…`
+                      : "Generating…"
+                    : "Download PDF"}
+                </Button>
               </div>
+            </div>
+
+            <div className="max-h-[360px] overflow-auto rounded-md border border-border bg-background">
+              {teamsLoading ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">Loading…</div>
+              ) : selectedTeams.length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  No teams in this range.
+                </div>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {selectedTeams.map((t, i) => {
+                    const realIdx =
+                      (paymentRangeFrom.trim() === ""
+                        ? 0
+                        : Math.max(0, parseInt(paymentRangeFrom, 10) - 1 || 0)) + i;
+                    return (
+                      <li key={t.id} className="flex items-center gap-3 px-3 py-2">
+                        <span className="w-8 text-right font-mono text-xs text-muted-foreground">
+                          {realIdx + 1}.
+                        </span>
+                        <span className="inline-flex h-5 min-w-[2rem] items-center justify-center rounded bg-primary/15 px-1.5 font-mono text-xs">
+                          #{t.team_number ?? "?"}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {t.team_name}
+                        </span>
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          {t.problem_statement_id ?? "-"}
+                        </span>
+                        {t.payment_screenshot_url ? (
+                          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-500">
+                            ok
+                          </span>
+                        ) : (
+                          <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
+                            no screenshot
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </section>
         </main>
@@ -789,4 +880,3 @@ function GeneratePage() {
     </AuthGate>
   );
 }
-
