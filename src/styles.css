@@ -132,6 +132,28 @@
   --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
+/* ============ Make-A-Thon 7.0 — Spider-Verse theme tokens ============ */
+:root {
+  --m7-pink: oklch(0.72 0.22 350);
+  --m7-cyan: oklch(0.82 0.16 200);
+  --m7-yellow: oklch(0.88 0.18 95);
+  --m7-bg-deep: oklch(0.13 0.025 280);
+  --gradient-spider: linear-gradient(
+    90deg,
+    var(--m7-cyan) 0%,
+    var(--m7-pink) 50%,
+    var(--m7-yellow) 100%
+  );
+  --shadow-glow-pink: 0 0 24px -4px color-mix(in oklab, var(--m7-pink) 60%, transparent);
+  --shadow-glow-cyan: 0 0 24px -4px color-mix(in oklab, var(--m7-cyan) 60%, transparent);
+}
+
+@theme inline {
+  --color-m7-pink: var(--m7-pink);
+  --color-m7-cyan: var(--m7-cyan);
+  --color-m7-yellow: var(--m7-yellow);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
@@ -140,5 +162,67 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    background-image:
+      radial-gradient(
+        1200px 600px at 10% -10%,
+        color-mix(in oklab, var(--m7-pink) 22%, transparent) 0%,
+        transparent 60%
+      ),
+      radial-gradient(
+        1000px 500px at 110% 10%,
+        color-mix(in oklab, var(--m7-cyan) 20%, transparent) 0%,
+        transparent 60%
+      ),
+      linear-gradient(180deg, var(--m7-bg-deep) 0%, var(--background) 100%);
+    background-attachment: fixed;
+    font-family:
+      "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family:
+      "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: -0.01em;
   }
 }
+
+@layer utilities {
+  .text-gradient-spider {
+    background-image: var(--gradient-spider);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .bg-gradient-spider {
+    background-image: var(--gradient-spider);
+  }
+  .border-gradient-spider {
+    border-image: var(--gradient-spider) 1;
+  }
+  .shadow-glow-pink {
+    box-shadow: var(--shadow-glow-pink);
+  }
+  .shadow-glow-cyan {
+    box-shadow: var(--shadow-glow-cyan);
+  }
+  .glitch {
+    position: relative;
+    text-shadow:
+      2px 0 0 color-mix(in oklab, var(--m7-pink) 80%, transparent),
+      -2px 0 0 color-mix(in oklab, var(--m7-cyan) 80%, transparent);
+  }
+  .gradient-bar {
+    height: 3px;
+    background-image: var(--gradient-spider);
+    border-radius: 2px;
+  }
+  @keyframes m7-shimmer {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+  .animate-shimmer {
+    background-size: 200% 100%;
+    animation: m7-shimmer 6s linear infinite;
+  }
+}
+
