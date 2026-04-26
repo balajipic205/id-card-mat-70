@@ -13,13 +13,15 @@ const baseLinks = [
 export function Header() {
   const loc = useLocation();
   const { user } = useAuth();
-  const { isAdmin } = useRoles();
+  const { isAdmin, isStaff } = useRoles();
   const navigate = useNavigate();
   const router = useRouter();
 
-  const links = isAdmin
-    ? [...baseLinks, { to: "/attendance" as const, label: "Attendance" }]
-    : baseLinks;
+  const links = [
+    ...baseLinks,
+    ...(isStaff ? [{ to: "/attendance" as const, label: "Attendance" }] : []),
+    ...(isAdmin ? [{ to: "/sessions" as const, label: "Sessions" }] : []),
+  ];
 
   async function signOut() {
     await supabase.auth.signOut();
