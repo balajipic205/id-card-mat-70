@@ -40,9 +40,13 @@ export function useRoles() {
     };
   }, [user, authLoading]);
 
+  const isAdmin = roles.includes("admin");
+  const isVolunteer = roles.includes("volunteer");
   return {
     roles,
-    isAdmin: roles.includes("admin"),
+    isAdmin,
+    isVolunteer,
+    isStaff: isAdmin || isVolunteer,
     loading: loading || authLoading,
   };
 }

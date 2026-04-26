@@ -63,25 +63,25 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.16 0.02 280);
-  --foreground: oklch(0.97 0.01 280);
-  --card: oklch(0.21 0.025 280);
-  --card-foreground: oklch(0.97 0.01 280);
-  --popover: oklch(0.21 0.025 280);
-  --popover-foreground: oklch(0.97 0.01 280);
-  --primary: oklch(0.72 0.19 330);
-  --primary-foreground: oklch(0.16 0.02 280);
-  --secondary: oklch(0.27 0.04 280);
-  --secondary-foreground: oklch(0.97 0.01 280);
-  --muted: oklch(0.24 0.03 280);
-  --muted-foreground: oklch(0.7 0.03 280);
-  --accent: oklch(0.78 0.16 200);
-  --accent-foreground: oklch(0.16 0.02 280);
+  --background: oklch(0.13 0.01 20);
+  --foreground: oklch(0.98 0.005 20);
+  --card: oklch(0.18 0.02 20);
+  --card-foreground: oklch(0.98 0.005 20);
+  --popover: oklch(0.18 0.02 20);
+  --popover-foreground: oklch(0.98 0.005 20);
+  --primary: oklch(0.62 0.24 25);
+  --primary-foreground: oklch(0.99 0.005 20);
+  --secondary: oklch(0.24 0.03 20);
+  --secondary-foreground: oklch(0.98 0.005 20);
+  --muted: oklch(0.22 0.02 20);
+  --muted-foreground: oklch(0.72 0.02 20);
+  --accent: oklch(0.78 0.15 200);
+  --accent-foreground: oklch(0.13 0.01 20);
   --destructive: oklch(0.62 0.24 27);
-  --destructive-foreground: oklch(0.98 0.003 247);
-  --border: oklch(0.3 0.03 280);
-  --input: oklch(0.27 0.04 280);
-  --ring: oklch(0.72 0.19 330);
+  --destructive-foreground: oklch(0.99 0.005 20);
+  --border: oklch(0.27 0.03 20);
+  --input: oklch(0.22 0.02 20);
+  --ring: oklch(0.62 0.24 25);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -132,24 +132,26 @@
   --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
-/* ============ Make-A-Thon 7.0 — Spider-Verse theme tokens ============ */
+/* ============ Make-A-Thon 7.0 — Red / Black theme tokens ============ */
 :root {
-  --m7-pink: oklch(0.72 0.22 350);
-  --m7-cyan: oklch(0.82 0.16 200);
+  --m7-pink: oklch(0.62 0.24 25);   /* red (alias kept for back-compat) */
+  --m7-red:  oklch(0.62 0.24 25);
+  --m7-cyan: oklch(0.78 0.15 200);
   --m7-yellow: oklch(0.88 0.18 95);
-  --m7-bg-deep: oklch(0.13 0.025 280);
+  --m7-bg-deep: oklch(0.10 0.01 20);
   --gradient-spider: linear-gradient(
     90deg,
-    var(--m7-cyan) 0%,
-    var(--m7-pink) 50%,
-    var(--m7-yellow) 100%
+    var(--m7-red) 0%,
+    oklch(0.55 0.26 15) 60%,
+    oklch(0.45 0.22 10) 100%
   );
-  --shadow-glow-pink: 0 0 24px -4px color-mix(in oklab, var(--m7-pink) 60%, transparent);
+  --shadow-glow-pink: 0 0 24px -4px color-mix(in oklab, var(--m7-red) 65%, transparent);
   --shadow-glow-cyan: 0 0 24px -4px color-mix(in oklab, var(--m7-cyan) 60%, transparent);
 }
 
 @theme inline {
   --color-m7-pink: var(--m7-pink);
+  --color-m7-red:  var(--m7-red);
   --color-m7-cyan: var(--m7-cyan);
   --color-m7-yellow: var(--m7-yellow);
 }
@@ -165,13 +167,13 @@
     background-image:
       radial-gradient(
         1200px 600px at 10% -10%,
-        color-mix(in oklab, var(--m7-pink) 22%, transparent) 0%,
+        color-mix(in oklab, var(--m7-red) 28%, transparent) 0%,
         transparent 60%
       ),
       radial-gradient(
-        1000px 500px at 110% 10%,
-        color-mix(in oklab, var(--m7-cyan) 20%, transparent) 0%,
-        transparent 60%
+        900px 500px at 110% 10%,
+        color-mix(in oklab, var(--m7-red) 18%, transparent) 0%,
+        transparent 65%
       ),
       linear-gradient(180deg, var(--m7-bg-deep) 0%, var(--background) 100%);
     background-attachment: fixed;

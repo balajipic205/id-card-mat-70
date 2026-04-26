@@ -9,12 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as GenerateRouteImport } from './routes/generate'
 import { Route as ExportRouteImport } from './routes/export'
 import { Route as AttendanceRouteImport } from './routes/attendance'
 import { Route as IndexRouteImport } from './routes/index'
 
+const SessionsRoute = SessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/export': typeof ExportRoute
   '/generate': typeof GenerateRoute
   '/login': typeof LoginRoute
+  '/sessions': typeof SessionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/export': typeof ExportRoute
   '/generate': typeof GenerateRoute
   '/login': typeof LoginRoute
+  '/sessions': typeof SessionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,13 +70,27 @@ export interface FileRoutesById {
   '/export': typeof ExportRoute
   '/generate': typeof GenerateRoute
   '/login': typeof LoginRoute
+  '/sessions': typeof SessionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/attendance' | '/export' | '/generate' | '/login'
+  fullPaths:
+    | '/'
+    | '/attendance'
+    | '/export'
+    | '/generate'
+    | '/login'
+    | '/sessions'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/attendance' | '/export' | '/generate' | '/login'
-  id: '__root__' | '/' | '/attendance' | '/export' | '/generate' | '/login'
+  to: '/' | '/attendance' | '/export' | '/generate' | '/login' | '/sessions'
+  id:
+    | '__root__'
+    | '/'
+    | '/attendance'
+    | '/export'
+    | '/generate'
+    | '/login'
+    | '/sessions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -77,10 +99,18 @@ export interface RootRouteChildren {
   ExportRoute: typeof ExportRoute
   GenerateRoute: typeof GenerateRoute
   LoginRoute: typeof LoginRoute
+  SessionsRoute: typeof SessionsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sessions': {
+      id: '/sessions'
+      path: '/sessions'
+      fullPath: '/sessions'
+      preLoaderRoute: typeof SessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -125,16 +155,8 @@ const rootRouteChildren: RootRouteChildren = {
   ExportRoute: ExportRoute,
   GenerateRoute: GenerateRoute,
   LoginRoute: LoginRoute,
+  SessionsRoute: SessionsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
