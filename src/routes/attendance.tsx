@@ -25,7 +25,7 @@ import { useAuth } from "@/lib/use-auth";
 export const Route = createFileRoute("/attendance")({
   head: () => ({
     meta: [
-      { title: "Attendance — Makeathon 7.0" },
+      { title: "Attendance — Make-A-Thon 7.0" },
       {
         name: "description",
         content: "Scan participant ID QR codes and capture signatures.",
@@ -40,6 +40,14 @@ export const Route = createFileRoute("/attendance")({
 });
 
 const SIGNATURE_BUCKET = "signatures";
+const ACTIVE_SESSION_KEY = "m7.attendance.activeSessionId";
+
+interface SessionRow {
+  id: string;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+}
 
 interface ScannedMember extends Member {
   team?: Team | null;
@@ -48,18 +56,21 @@ interface ScannedMember extends Member {
 
 interface AttendanceRow {
   id: string;
+  session_id: string;
   unique_member_id: string;
   full_name: string | null;
   team_name: string | null;
   marked_at: string;
   checked: boolean;
+  locked: boolean;
+  signature_url: string | null;
 }
 
 function AttendancePage() {
   const { user } = useAuth();
-  const { isAdmin, loading: rolesLoading } = useRoles();
+  const { isAdmin, isStaff, loading } = useRoles();
 
-  if (rolesLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen">
         <Header />
@@ -70,18 +81,16 @@ function AttendancePage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!isStaff) {
     return (
       <div className="min-h-screen">
         <Header />
         <div className="mx-auto max-w-xl px-6 py-24 text-center">
-          <h1 className="text-3xl font-bold text-gradient-spider">
-            Admins only
+          <h1 className="font-display text-3xl font-bold text-gradient-spider">
+            Staff only
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            Attendance marking is restricted to admin accounts. Ask the event
-            lead to grant your account the <code>admin</code> role in the
-            Cloud database.
+            Attendance marking is restricted to admin and volunteer accounts.
           </p>
           <div className="mt-6">
             <Link
@@ -100,12 +109,23 @@ function AttendancePage() {
     <div className="min-h-screen">
       <Toaster theme="dark" position="top-right" richColors />
       <Header />
-      <AttendanceWorkspace adminUserId={user?.id ?? null} />
+      <AttendanceWorkspace
+        userId={user?.id ?? null}
+        isAdmin={isAdmin}
+      />
     </div>
   );
 }
 
-function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
+function AttendanceWorkspace({
+  userId,
+  isAdmin,
+}: {
+  userId: string | null;
+  isAdmin: boolean;
+}) {
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [scanned, setScanned] = useState<ScannedMember | null>(null);
   const [alreadyMarked, setAlreadyMarked] = useState<AttendanceRow | null>(
     null,
@@ -116,18 +136,52 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
   const [manualId, setManualId] = useState("");
   const sigRef = useRef<SignatureCanvas | null>(null);
 
-  async function loadRecent() {
-    const { data } = await supabase
-      .from("attendance")
-      .select("id, unique_member_id, full_name, team_name, marked_at, checked")
-      .order("marked_at", { ascending: false })
-      .limit(20);
-    setRecent((data as AttendanceRow[]) ?? []);
-  }
+  // Load sessions
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("attendance_sessions")
+        .select("id, name, starts_at, ends_at")
+        .order("starts_at", { ascending: false });
+      if (error) toast.error(error.message);
+      const list = (data as SessionRow[]) ?? [];
+      setSessions(list);
+      const stored =
+        typeof window !== "undefined"
+          ? localStorage.getItem(ACTIVE_SESSION_KEY)
+          : null;
+      const initial =
+        list.find((s) => s.id === stored) ??
+        list.find((s) => {
+          const now = Date.now();
+          return (
+            new Date(s.starts_at).getTime() <= now &&
+            new Date(s.ends_at).getTime() >= now
+          );
+        }) ??
+        list[0];
+      if (initial) setSessionId(initial.id);
+    })();
+  }, []);
 
   useEffect(() => {
-    loadRecent();
-  }, []);
+    if (sessionId && typeof window !== "undefined") {
+      localStorage.setItem(ACTIVE_SESSION_KEY, sessionId);
+      loadRecent(sessionId);
+    }
+  }, [sessionId]);
+
+  async function loadRecent(sid: string) {
+    const { data } = await supabase
+      .from("attendance")
+      .select(
+        "id, session_id, unique_member_id, full_name, team_name, marked_at, checked, locked, signature_url",
+      )
+      .eq("session_id", sid)
+      .order("marked_at", { ascending: false })
+      .limit(25);
+    setRecent((data as AttendanceRow[]) ?? []);
+  }
 
   function reset() {
     setScanned(null);
@@ -137,13 +191,20 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
   }
 
   async function handleScannedId(rawId: string) {
+    if (!sessionId) {
+      toast.error("Pick an active session first.");
+      return;
+    }
     const id = rawId.trim();
     if (!id) return;
-    if (scanned?.unique_member_id === id) return; // ignore identical re-scan
-    // Look up existing attendance first
+    if (scanned?.unique_member_id === id) return;
+
     const { data: existing } = await supabase
       .from("attendance")
-      .select("id, unique_member_id, full_name, team_name, marked_at, checked")
+      .select(
+        "id, session_id, unique_member_id, full_name, team_name, marked_at, checked, locked, signature_url",
+      )
+      .eq("session_id", sessionId)
       .eq("unique_member_id", id)
       .maybeSingle();
     if (existing) {
@@ -191,7 +252,7 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
   }
 
   async function saveAttendance() {
-    if (!scanned) return;
+    if (!scanned || !sessionId) return;
     if (!checked) {
       toast.error("Tick the present checkbox before saving.");
       return;
@@ -202,12 +263,11 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
     }
     setSaving(true);
     try {
-      // 1. Get signature as PNG blob
       const dataUrl = sigRef.current
         .getTrimmedCanvas()
         .toDataURL("image/png");
       const blob = await (await fetch(dataUrl)).blob();
-      const path = `${scanned.unique_member_id}-${Date.now()}.png`;
+      const path = `${sessionId}/${scanned.unique_member_id}-${Date.now()}.png`;
       const { error: upErr } = await supabase.storage
         .from(SIGNATURE_BUCKET)
         .upload(path, blob, {
@@ -219,8 +279,8 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
         .from(SIGNATURE_BUCKET)
         .createSignedUrl(path, 60 * 60 * 24 * 365);
 
-      // 2. Insert attendance row
       const { error: insErr } = await supabase.from("attendance").insert({
+        session_id: sessionId,
         unique_member_id: scanned.unique_member_id,
         member_id: scanned.id,
         team_id: scanned.team_id,
@@ -229,12 +289,13 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
         checked,
         signature_path: path,
         signature_url: signed?.signedUrl ?? null,
-        marked_by: adminUserId,
+        marked_by: userId,
+        locked: true,
       });
       if (insErr) throw insErr;
-      toast.success(`Attendance saved for ${scanned.full_name}`);
+      toast.success(`Attendance saved & locked for ${scanned.full_name}`);
       reset();
-      loadRecent();
+      loadRecent(sessionId);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to save attendance";
       toast.error(msg);
@@ -243,19 +304,144 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
     }
   }
 
+  async function unlockRow(row: AttendanceRow) {
+    if (!isAdmin) return;
+    const { error } = await supabase
+      .from("attendance")
+      .update({
+        locked: false,
+        unlocked_by: userId,
+        unlocked_at: new Date().toISOString(),
+      })
+      .eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success(`Unlocked ${row.full_name}. They can re-sign now.`);
+    if (sessionId) loadRecent(sessionId);
+    setAlreadyMarked(null);
+    // Re-load member so admin can re-sign
+    handleScannedId(row.unique_member_id);
+  }
+
+  async function deleteRow(row: AttendanceRow) {
+    if (!isAdmin) return;
+    if (!confirm(`Delete attendance for ${row.full_name}?`)) return;
+    const { error } = await supabase.from("attendance").delete().eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success("Deleted");
+    if (sessionId) loadRecent(sessionId);
+    setAlreadyMarked(null);
+  }
+
+  // If unlocked row exists for current scan target, allow overwrite save
+  async function saveOverwrite() {
+    if (!scanned || !sessionId) return;
+    if (!sigRef.current || sigRef.current.isEmpty()) {
+      toast.error("Please capture a signature before saving.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const dataUrl = sigRef.current.getTrimmedCanvas().toDataURL("image/png");
+      const blob = await (await fetch(dataUrl)).blob();
+      const path = `${sessionId}/${scanned.unique_member_id}-${Date.now()}.png`;
+      const { error: upErr } = await supabase.storage
+        .from(SIGNATURE_BUCKET)
+        .upload(path, blob, { contentType: "image/png", upsert: true });
+      if (upErr) throw upErr;
+      const { data: signed } = await supabase.storage
+        .from(SIGNATURE_BUCKET)
+        .createSignedUrl(path, 60 * 60 * 24 * 365);
+      const { error: updErr } = await supabase
+        .from("attendance")
+        .update({
+          checked,
+          signature_path: path,
+          signature_url: signed?.signedUrl ?? null,
+          marked_by: userId,
+          marked_at: new Date().toISOString(),
+          locked: true,
+        })
+        .eq("session_id", sessionId)
+        .eq("unique_member_id", scanned.unique_member_id);
+      if (updErr) throw updErr;
+      toast.success(`Re-signed & locked for ${scanned.full_name}`);
+      reset();
+      loadRecent(sessionId);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to save";
+      toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const activeSession = sessions.find((s) => s.id === sessionId) ?? null;
+
+  if (sessions.length === 0) {
+    return (
+      <main className="mx-auto max-w-3xl space-y-6 px-6 py-16 text-center">
+        <h1 className="font-display text-3xl font-bold text-gradient-spider">
+          No sessions yet
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          An admin needs to create a session before attendance can be marked.
+        </p>
+        {isAdmin ? (
+          <Link
+            to="/sessions"
+            className="inline-block rounded-md bg-gradient-spider px-4 py-2 text-sm font-medium text-primary-foreground shadow-glow-pink"
+          >
+            Create a session
+          </Link>
+        ) : null}
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-8 lg:grid-cols-2">
       <section className="space-y-4">
         <header>
-          <div className="text-xs uppercase tracking-widest text-m7-cyan">
-            Step 1
+          <div className="text-xs uppercase tracking-widest text-m7-red">
+            Active session
           </div>
-          <h1 className="font-display text-3xl font-bold">
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <select
+              value={sessionId ?? ""}
+              onChange={(e) => setSessionId(e.target.value)}
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
+            >
+              {sessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} —{" "}
+                  {new Date(s.starts_at).toLocaleString([], {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                </option>
+              ))}
+            </select>
+            {isAdmin ? (
+              <Link
+                to="/sessions"
+                className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Manage
+              </Link>
+            ) : null}
+          </div>
+          {activeSession ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              {new Date(activeSession.starts_at).toLocaleString()} →{" "}
+              {new Date(activeSession.ends_at).toLocaleString()}
+            </div>
+          ) : null}
+          <h1 className="mt-4 font-display text-3xl font-bold">
             <span className="text-gradient-spider">Scan</span> participant QR
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Hold the ID card 10–20cm in front of the camera. Toggle the torch
-            if there is glare.
+            Hold the ID card 10–20cm from the camera. Toggle the torch if there
+            is glare.
           </p>
           <div className="gradient-bar mt-3 w-24 animate-shimmer" />
         </header>
@@ -292,7 +478,7 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
 
       <section className="space-y-4">
         <header>
-          <div className="text-xs uppercase tracking-widest text-m7-pink">
+          <div className="text-xs uppercase tracking-widest text-m7-red">
             Step 2
           </div>
           <h2 className="font-display text-3xl font-bold">
@@ -304,7 +490,10 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
         {alreadyMarked ? (
           <AlreadyMarkedCard
             row={alreadyMarked}
+            isAdmin={isAdmin}
             onDismiss={() => setAlreadyMarked(null)}
+            onUnlock={() => unlockRow(alreadyMarked)}
+            onDelete={() => deleteRow(alreadyMarked)}
           />
         ) : scanned ? (
           <div className="rounded-2xl border border-border bg-card p-5 shadow-glow-pink">
@@ -395,8 +584,18 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
                 disabled={saving}
                 className="flex-1 bg-gradient-spider text-primary-foreground shadow-glow-pink"
               >
-                {saving ? "Saving…" : "Save attendance"}
+                {saving ? "Saving…" : "Save & lock"}
               </Button>
+              {isAdmin ? (
+                <Button
+                  variant="outline"
+                  onClick={saveOverwrite}
+                  disabled={saving}
+                  title="Overwrite existing signature for this member in this session"
+                >
+                  Overwrite
+                </Button>
+              ) : null}
               <Button variant="outline" onClick={reset} disabled={saving}>
                 Cancel
               </Button>
@@ -408,7 +607,12 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
           </div>
         )}
 
-        <RecentList rows={recent} />
+        <RecentList
+          rows={recent}
+          isAdmin={isAdmin}
+          onUnlock={unlockRow}
+          onDelete={deleteRow}
+        />
       </section>
     </main>
   );
@@ -416,15 +620,21 @@ function AttendanceWorkspace({ adminUserId }: { adminUserId: string | null }) {
 
 function AlreadyMarkedCard({
   row,
+  isAdmin,
   onDismiss,
+  onUnlock,
+  onDelete,
 }: {
   row: AttendanceRow;
+  isAdmin: boolean;
   onDismiss: () => void;
+  onUnlock: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/5 p-5">
       <div className="text-xs uppercase tracking-widest text-yellow-400">
-        Already marked
+        Already marked {row.locked ? "· Locked" : "· Unlocked"}
       </div>
       <div className="mt-1 text-xl font-semibold">{row.full_name}</div>
       <div className="text-sm text-muted-foreground">
@@ -437,22 +647,54 @@ function AlreadyMarkedCard({
           {new Date(row.marked_at).toLocaleString()}
         </span>
       </div>
-      <Button variant="outline" className="mt-4" onClick={onDismiss}>
-        Dismiss
-      </Button>
+      {row.signature_url ? (
+        <img
+          src={row.signature_url}
+          alt="signature"
+          className="mt-3 h-20 rounded border border-border bg-white p-1"
+        />
+      ) : null}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button variant="outline" onClick={onDismiss}>
+          Dismiss
+        </Button>
+        {isAdmin ? (
+          <>
+            <Button
+              onClick={onUnlock}
+              className="bg-gradient-spider text-primary-foreground"
+            >
+              Unlock & re-sign
+            </Button>
+            <Button variant="outline" onClick={onDelete}>
+              Delete
+            </Button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-function RecentList({ rows }: { rows: AttendanceRow[] }) {
+function RecentList({
+  rows,
+  isAdmin,
+  onUnlock,
+  onDelete,
+}: {
+  rows: AttendanceRow[];
+  isAdmin: boolean;
+  onUnlock: (r: AttendanceRow) => void;
+  onDelete: (r: AttendanceRow) => void;
+}) {
   if (rows.length === 0) return null;
   return (
     <div className="rounded-2xl border border-border bg-card/60 p-4">
       <div className="mb-2 flex items-center justify-between">
         <div className="font-display text-sm font-semibold">
-          Recent check-ins
+          Recent check-ins (this session)
         </div>
-        <span className="text-xs text-muted-foreground">{rows.length} latest</span>
+        <span className="text-xs text-muted-foreground">{rows.length}</span>
       </div>
       <ul className="divide-y divide-border text-sm">
         {rows.map((r) => (
@@ -461,14 +703,45 @@ function RecentList({ rows }: { rows: AttendanceRow[] }) {
             className="flex items-center justify-between gap-3 py-2"
           >
             <div className="min-w-0">
-              <div className="truncate font-medium">{r.full_name}</div>
+              <div className="truncate font-medium">
+                {r.full_name}{" "}
+                {r.locked ? (
+                  <span className="ml-1 rounded bg-m7-red/20 px-1.5 py-0.5 text-[10px] uppercase text-m7-red">
+                    locked
+                  </span>
+                ) : (
+                  <span className="ml-1 rounded bg-yellow-500/20 px-1.5 py-0.5 text-[10px] uppercase text-yellow-300">
+                    unlocked
+                  </span>
+                )}
+              </div>
               <div className="truncate text-xs text-muted-foreground">
                 {r.unique_member_id}
                 {r.team_name ? ` · ${r.team_name}` : ""}
               </div>
             </div>
-            <div className="text-xs text-muted-foreground">
-              {new Date(r.marked_at).toLocaleTimeString()}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {new Date(r.marked_at).toLocaleTimeString()}
+              </span>
+              {isAdmin && r.locked ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onUnlock(r)}
+                >
+                  Unlock
+                </Button>
+              ) : null}
+              {isAdmin ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onDelete(r)}
+                >
+                  ✕
+                </Button>
+              ) : null}
             </div>
           </li>
         ))}
@@ -492,7 +765,6 @@ function ScannerCard({ onDecode }: { onDecode: (text: string) => void }) {
     at: 0,
   });
 
-  // Build a hint set tuned for QR
   const reader = useMemo(() => {
     const hints = new Map();
     hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
@@ -500,12 +772,10 @@ function ScannerCard({ onDecode }: { onDecode: (text: string) => void }) {
     return new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 80 });
   }, []);
 
-  // Enumerate cameras
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        // Prompt once so labels appear
         const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
         tmp.getTracks().forEach((t) => t.stop());
         const list = await BrowserMultiFormatReader.listVideoInputDevices();
@@ -523,7 +793,6 @@ function ScannerCard({ onDecode }: { onDecode: (text: string) => void }) {
     };
   }, []);
 
-  // Start / restart scanning when device changes
   useEffect(() => {
     if (!deviceId || !videoRef.current) return;
     let cancelled = false;
@@ -565,7 +834,6 @@ function ScannerCard({ onDecode }: { onDecode: (text: string) => void }) {
         }
         controlsRef.current = controls;
         setRunning(true);
-        // Probe torch capability
         const stream = videoRef.current?.srcObject as MediaStream | null;
         const track = stream?.getVideoTracks()[0];
         const caps =
@@ -608,14 +876,13 @@ function ScannerCard({ onDecode }: { onDecode: (text: string) => void }) {
           muted
           playsInline
         />
-        {/* Targeting overlay */}
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <div className="relative h-2/3 w-2/3 max-w-sm">
             <div className="absolute inset-0 rounded-xl border-2 border-white/30" />
-            <span className="absolute -left-px -top-px h-6 w-6 border-l-2 border-t-2 border-m7-cyan" />
-            <span className="absolute -right-px -top-px h-6 w-6 border-r-2 border-t-2 border-m7-pink" />
-            <span className="absolute -bottom-px -left-px h-6 w-6 border-b-2 border-l-2 border-m7-pink" />
-            <span className="absolute -bottom-px -right-px h-6 w-6 border-b-2 border-r-2 border-m7-cyan" />
+            <span className="absolute -left-px -top-px h-6 w-6 border-l-2 border-t-2 border-m7-red" />
+            <span className="absolute -right-px -top-px h-6 w-6 border-r-2 border-t-2 border-m7-red" />
+            <span className="absolute -bottom-px -left-px h-6 w-6 border-b-2 border-l-2 border-m7-red" />
+            <span className="absolute -bottom-px -right-px h-6 w-6 border-b-2 border-r-2 border-m7-red" />
           </div>
         </div>
         {error ? (
