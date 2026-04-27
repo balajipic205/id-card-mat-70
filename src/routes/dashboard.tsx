@@ -227,7 +227,12 @@ function DashboardWorkspace() {
   const grouped = useMemo(() => {
     const byTeam = new Map<
       string,
-      { team: TeamRow; members: MemberRow[]; college: "SVCE" | "Other" }
+      {
+        team: TeamRow;
+        members: MemberRow[];
+        college: "SVCE" | "Other";
+        collegeName: string;
+      }
     >();
     for (const m of members) {
       if (!m.team_id) continue;
@@ -235,16 +240,17 @@ function DashboardWorkspace() {
       if (!team) continue;
       let entry = byTeam.get(m.team_id);
       if (!entry) {
-        entry = { team, members: [], college: "Other" };
+        entry = { team, members: [], college: "Other", collegeName: "—" };
         byTeam.set(m.team_id, entry);
       }
       entry.members.push(m);
     }
-    // Decide college per team: if ANY member has SVCE email, mark SVCE.
+    // Decide college bucket + display name per team.
     for (const e of byTeam.values()) {
       e.college = e.members.some((m) => isSvce(m.college_email))
         ? "SVCE"
         : "Other";
+      e.collegeName = teamCollegeName(e.members.map((m) => m.college_email));
     }
     return Array.from(byTeam.values()).sort(
       (a, b) => (a.team.team_number ?? 9999) - (b.team.team_number ?? 9999),
