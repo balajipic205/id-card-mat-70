@@ -89,6 +89,30 @@ function toLocalInput(value: string | Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Friendly preview like "Mon, 27 Apr 2026, 8:00 AM". */
+function prettyLocal(value: string) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function TimePreview({ value }: { value: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      <span className="text-m7-red">●</span> {prettyLocal(value)}
+    </p>
+  );
+}
+
 function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [name, setName] = useState("Day 1 — Morning");
