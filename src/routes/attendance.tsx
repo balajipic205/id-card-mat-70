@@ -190,14 +190,62 @@ function AttendanceWorkspace({
     sigRef.current?.clear();
   }
 
+  /** Returns null if window OK, else a reason string. */
+  function checkWindow(s: SessionRow | null): null | "before_window" | "after_window" {
+    if (!s) return null;
+    const now = Date.now();
+    const start = new Date(s.starts_at).getTime();
+    const end = new Date(s.ends_at).getTime();
+    if (now < start) return "before_window";
+    if (now > end) return "after_window";
+    return null;
+  }
+
+  async function logAttempt(
+    reason: string,
+    uid: string | null,
+    details?: Record<string, unknown>,
+  ) {
+    try {
+      await supabase.from("attendance_attempts").insert({
+        session_id: sessionId,
+        unique_member_id: uid,
+        reason,
+        attempted_by: userId,
+        details: details ?? null,
+      });
+    } catch {
+      /* logging failure is not fatal */
+    }
+  }
+
   async function handleScannedId(rawId: string) {
     if (!sessionId) {
       toast.error("Pick an active session first.");
+      await logAttempt("no_session", rawId.trim() || null);
       return;
     }
     const id = rawId.trim();
     if (!id) return;
     if (scanned?.unique_member_id === id) return;
+
+    const active = sessions.find((s) => s.id === sessionId) ?? null;
+    const winErr = checkWindow(active);
+    if (winErr) {
+      const when =
+        winErr === "before_window"
+          ? `starts at ${new Date(active!.starts_at).toLocaleString()}`
+          : `ended at ${new Date(active!.ends_at).toLocaleString()}`;
+      toast.error("Session is closed", {
+        description: `This session ${when}. Attendance cannot be recorded right now.`,
+        duration: 6000,
+      });
+      await logAttempt(winErr, id, {
+        session_starts_at: active?.starts_at,
+        session_ends_at: active?.ends_at,
+      });
+      return;
+    }
 
     const { data: existing } = await supabase
       .from("attendance")
@@ -210,6 +258,7 @@ function AttendanceWorkspace({
     if (existing) {
       setAlreadyMarked(existing as AttendanceRow);
       setScanned(null);
+      await logAttempt("duplicate", id);
       toast.warning(
         `${(existing as AttendanceRow).full_name ?? id} already marked`,
         {
@@ -228,6 +277,7 @@ function AttendanceWorkspace({
       .maybeSingle();
     if (error || !member) {
       toast.error(`No member found for ID ${id}`);
+      await logAttempt("unknown_member", id);
       return;
     }
     let team: Team | null = null;
