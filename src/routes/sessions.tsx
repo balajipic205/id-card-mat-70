@@ -76,7 +76,7 @@ function SessionsPage() {
 
   return (
     <div className="min-h-screen">
-      <Toaster theme="dark" position="top-right" richColors />
+      <Toaster theme="dark" position="top-center" richColors closeButton expand visibleToasts={3} toastOptions={{ style: { fontSize: "0.95rem" } }} />
       <Header />
       <SessionsWorkspace adminUserId={user?.id ?? null} />
     </div>
