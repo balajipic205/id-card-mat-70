@@ -661,6 +661,174 @@ function DashboardWorkspace() {
     }
   }
 
+  async function exportTeamsSummaryPdf() {
+    if (!activeSession) return toast.error("No session selected");
+    setBusy(true);
+    try {
+      const rows = buildTeamsSummaryRows();
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      doc.setFont("times", "bold");
+      doc.setFontSize(16);
+      doc.text("MAKE-A-THON 7.0", pageW / 2, 36, { align: "center" });
+      doc.setFontSize(12);
+      doc.setFont("times", "normal");
+      doc.text(
+        `Session: ${activeSession.name}  |  ${new Date(activeSession.starts_at).toLocaleString()}  →  ${new Date(activeSession.ends_at).toLocaleString()}`,
+        pageW / 2,
+        54,
+        { align: "center" },
+      );
+      doc.text("Teams Summary", pageW / 2, 72, { align: "center" });
+
+      autoTable(doc, {
+        startY: 86,
+        head: [["S.No", "Team", "#", "PS ID", "Track", "College", "Members", "Present"]],
+        body: rows.map((r) => [
+          String(r.sno),
+          r.teamName,
+          r.teamNumber != null ? `#${r.teamNumber}` : "—",
+          r.psid,
+          r.track,
+          r.college,
+          String(r.memberCount),
+          `${r.presentCount}/${r.memberCount}`,
+        ]),
+        styles: { font: "times", fontSize: 12, cellPadding: 4, valign: "middle" },
+        headStyles: {
+          font: "times",
+          fontStyle: "bold",
+          fontSize: 12,
+          fillColor: [120, 20, 20],
+          textColor: 255,
+        },
+        columnStyles: {
+          0: { cellWidth: 40, halign: "center" },
+          2: { cellWidth: 40, halign: "center" },
+          3: { cellWidth: 70 },
+          4: { cellWidth: 50, halign: "center" },
+          6: { cellWidth: 70, halign: "center" },
+          7: { cellWidth: 70, halign: "center" },
+        },
+      });
+
+      doc.save(`MakeAThon7_TeamsSummary_${activeSession.name.replace(/\s+/g, "_")}.pdf`);
+      toast.success("Teams summary PDF downloaded");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to export PDF");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportTeamsSummaryDocx() {
+    if (!activeSession) return toast.error("No session selected");
+    setBusy(true);
+    try {
+      const rows = buildTeamsSummaryRows();
+      const TIMES = "Times New Roman";
+      const headers = ["S.No", "Team", "#", "PS ID", "Track", "College", "Members", "Present"];
+      const text = (s: string) =>
+        new Paragraph({
+          children: [new TextRun({ text: s, font: TIMES, size: 24 })],
+        });
+      const headerRow = new DocxRow({
+        tableHeader: true,
+        children: headers.map(
+          (h) =>
+            new DocxCell({
+              shading: { fill: "7A1414" },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({ text: h, bold: true, color: "FFFFFF", font: TIMES, size: 24 }),
+                  ],
+                }),
+              ],
+            }),
+        ),
+      });
+      const bodyRows = rows.map(
+        (r) =>
+          new DocxRow({
+            children: [
+              new DocxCell({ children: [text(String(r.sno))] }),
+              new DocxCell({ children: [text(r.teamName)] }),
+              new DocxCell({ children: [text(r.teamNumber != null ? `#${r.teamNumber}` : "—")] }),
+              new DocxCell({ children: [text(r.psid)] }),
+              new DocxCell({ children: [text(r.track)] }),
+              new DocxCell({ children: [text(r.college)] }),
+              new DocxCell({ children: [text(String(r.memberCount))] }),
+              new DocxCell({ children: [text(`${r.presentCount}/${r.memberCount}`)] }),
+            ],
+          }),
+      );
+
+      const table = new DocxTable({
+        width: { size: 9000, type: WidthType.DXA },
+        rows: [headerRow, ...bodyRows],
+      });
+      const doc = new Document({
+        styles: { default: { document: { run: { font: TIMES, size: 24 } } } },
+        sections: [
+          {
+            properties: {
+              page: {
+                size: { width: 12240, height: 15840, orientation: PageOrientation.LANDSCAPE },
+                margin: { top: 720, right: 720, bottom: 720, left: 720 },
+              },
+            },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                heading: HeadingLevel.HEADING_1,
+                children: [
+                  new TextRun({ text: "MAKE-A-THON 7.0", bold: true, font: TIMES, size: 32 }),
+                ],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({ text: `Session: ${activeSession.name}`, font: TIMES, size: 24 }),
+                ],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    text: `${new Date(activeSession.starts_at).toLocaleString()}  →  ${new Date(activeSession.ends_at).toLocaleString()}`,
+                    font: TIMES,
+                    size: 24,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({ text: "Teams Summary", bold: true, font: TIMES, size: 24 }),
+                ],
+              }),
+              new Paragraph({ children: [new TextRun({ text: " ", font: TIMES, size: 24 })] }),
+              table,
+            ],
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      saveAs(
+        blob,
+        `MakeAThon7_TeamsSummary_${activeSession.name.replace(/\s+/g, "_")}.docx`,
+      );
+      toast.success("Teams summary Word doc downloaded");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to export Word doc");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
       <header>
