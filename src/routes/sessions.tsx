@@ -55,7 +55,7 @@ function SessionsPage() {
       <div className="min-h-screen">
         <Header />
         <div className="mx-auto max-w-xl px-6 py-24 text-center">
-          <h1 className="font-display text-3xl font-bold text-gradient-spider">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-gradient-spider">
             Admins only
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
@@ -161,7 +161,7 @@ function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
         <div className="text-xs uppercase tracking-widest text-m7-red">
           Admin
         </div>
-        <h1 className="font-display text-3xl font-bold">
+        <h1 className="font-display text-2xl sm:text-3xl font-bold">
           Attendance <span className="text-gradient-spider">Sessions</span>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">

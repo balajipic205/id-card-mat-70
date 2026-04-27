@@ -86,7 +86,7 @@ function AttendancePage() {
       <div className="min-h-screen">
         <Header />
         <div className="mx-auto max-w-xl px-6 py-24 text-center">
-          <h1 className="font-display text-3xl font-bold text-gradient-spider">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-gradient-spider">
             Staff only
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
@@ -444,7 +444,7 @@ function AttendanceWorkspace({
   if (sessions.length === 0) {
     return (
       <main className="mx-auto max-w-3xl space-y-6 px-6 py-16 text-center">
-        <h1 className="font-display text-3xl font-bold text-gradient-spider">
+        <h1 className="font-display text-2xl sm:text-3xl font-bold text-gradient-spider">
           No sessions yet
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -517,7 +517,7 @@ function AttendanceWorkspace({
               )}
             </div>
           ) : null}
-          <h1 className="mt-4 font-display text-3xl font-bold">
+          <h1 className="mt-4 font-display text-2xl sm:text-3xl font-bold">
             <span className="text-gradient-spider">Scan</span> participant QR
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -562,7 +562,7 @@ function AttendanceWorkspace({
           <div className="text-xs uppercase tracking-widest text-m7-red">
             Step 2
           </div>
-          <h2 className="font-display text-3xl font-bold">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold">
             Confirm <span className="text-gradient-spider">&amp; Sign</span>
           </h2>
           <div className="gradient-bar mt-3 w-24 animate-shimmer" />
