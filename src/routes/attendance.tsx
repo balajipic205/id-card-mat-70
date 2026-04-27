@@ -462,18 +462,20 @@ function AttendanceWorkspace({
     );
   }
 
+  const winState = checkWindow(activeSession);
+
   return (
-    <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-8 lg:grid-cols-2">
+    <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-3 py-6 sm:px-6 sm:py-8 lg:grid-cols-2">
       <section className="space-y-4">
         <header>
           <div className="text-xs uppercase tracking-widest text-m7-red">
             Active session
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <select
               value={sessionId ?? ""}
               onChange={(e) => setSessionId(e.target.value)}
-              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
             >
               {sessions.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -495,9 +497,24 @@ function AttendanceWorkspace({
             ) : null}
           </div>
           {activeSession ? (
-            <div className="mt-1 text-xs text-muted-foreground">
-              {new Date(activeSession.starts_at).toLocaleString()} →{" "}
-              {new Date(activeSession.ends_at).toLocaleString()}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">
+                {new Date(activeSession.starts_at).toLocaleString()} →{" "}
+                {new Date(activeSession.ends_at).toLocaleString()}
+              </span>
+              {winState === null ? (
+                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-300">
+                  Open
+                </span>
+              ) : winState === "before_window" ? (
+                <span className="rounded-full border border-yellow-500/40 bg-yellow-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-yellow-300">
+                  Not started
+                </span>
+              ) : (
+                <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-red-300">
+                  Closed
+                </span>
+              )}
             </div>
           ) : null}
           <h1 className="mt-4 font-display text-3xl font-bold">
