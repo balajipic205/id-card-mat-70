@@ -795,7 +795,7 @@ function DashboardWorkspace() {
                     </td>
                     <td className="py-2 pr-3 text-xs">{g.team.problem_statement_id ?? "—"}</td>
                     <td className="py-2 pr-3">{g.track}</td>
-                    <td className="py-2 pr-3">{g.college}</td>
+                    <td className="py-2 pr-3">{g.collegeName}</td>
                     <td className="py-2 pr-3">{g.members.length}</td>
                     <td className={"py-2 pr-3 font-medium " + tone}>
                       {g.presentCount}/{g.members.length}
