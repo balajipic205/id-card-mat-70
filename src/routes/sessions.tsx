@@ -295,6 +295,7 @@ function SessionEditor({
             value={starts}
             onChange={(e) => setStarts(e.target.value)}
           />
+          <TimePreview value={starts} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Ends</Label>
@@ -303,6 +304,7 @@ function SessionEditor({
             value={ends}
             onChange={(e) => setEnds(e.target.value)}
           />
+          <TimePreview value={ends} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Notes</Label>
