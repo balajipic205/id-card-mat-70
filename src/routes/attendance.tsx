@@ -303,6 +303,20 @@ function AttendanceWorkspace({
 
   async function saveAttendance() {
     if (!scanned || !sessionId) return;
+    const active = sessions.find((s) => s.id === sessionId) ?? null;
+    const winErr = checkWindow(active);
+    if (winErr) {
+      const when =
+        winErr === "before_window"
+          ? `starts at ${new Date(active!.starts_at).toLocaleString()}`
+          : `ended at ${new Date(active!.ends_at).toLocaleString()}`;
+      toast.error("Session is closed", {
+        description: `This session ${when}.`,
+        duration: 6000,
+      });
+      await logAttempt(winErr, scanned.unique_member_id);
+      return;
+    }
     if (!checked) {
       toast.error("Tick the present checkbox before saving.");
       return;
