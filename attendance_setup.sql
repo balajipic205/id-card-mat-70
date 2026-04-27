@@ -8,9 +8,9 @@
 -- 1. ROLES & ENUM UPDATE ----------------------------------------------
 -- IMPORTANT: Postgres requires adding enum values in a separate transaction!
 -- STEP 1: Highlight ONLY the line below, and click "Run" in Supabase:
--- ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'volunteer';
--- STEP 2: After that runs successfully, highlight and run the REST of this file.-- The user_roles table already exists from schema.sql. 
--- We create a helper function for role checks that won't cause recursion.
+--   ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'volunteer';
+-- STEP 2: After that runs successfully, run the REST of this file.
+
 create or replace function public.has_role(_user_id uuid, _role public.app_role)
 returns boolean
 language sql
@@ -101,7 +101,6 @@ create policy "staff inserts attendance"
     public.has_role(auth.uid(), 'volunteer')
   );
 
--- Only admins can update (i.e. unlock / re-sign)
 create policy "admin updates attendance"
   on public.attendance for update
   using (public.has_role(auth.uid(), 'admin'))
@@ -110,6 +109,72 @@ create policy "admin updates attendance"
 create policy "admin deletes attendance"
   on public.attendance for delete
   using (public.has_role(auth.uid(), 'admin'));
+
+-- 3b. SESSION WINDOW ENFORCEMENT (DB-level guard) --------------------
+-- Even if the UI is bypassed, attendance can ONLY be inserted while the
+-- chosen session window is currently active.
+create or replace function public.enforce_session_window()
+returns trigger
+language plpgsql
+as $$
+declare
+  s_start timestamptz;
+  s_end   timestamptz;
+begin
+  select starts_at, ends_at into s_start, s_end
+  from public.attendance_sessions where id = NEW.session_id;
+  if s_start is null then
+    raise exception 'Session not found';
+  end if;
+  if now() < s_start then
+    raise exception 'Session has not started yet (starts at %)', s_start
+      using errcode = 'P0001';
+  end if;
+  if now() > s_end then
+    raise exception 'Session has already ended (ended at %)', s_end
+      using errcode = 'P0001';
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists attendance_session_window on public.attendance;
+create trigger attendance_session_window
+  before insert on public.attendance
+  for each row execute function public.enforce_session_window();
+
+-- 3c. BLOCKED / OUT-OF-WINDOW SCAN AUDIT LOG --------------------------
+create table if not exists public.attendance_attempts (
+  id                 uuid primary key default gen_random_uuid(),
+  session_id         uuid references public.attendance_sessions(id) on delete set null,
+  unique_member_id   text,
+  reason             text not null, -- 'before_window' | 'after_window' | 'duplicate' | 'no_session' | 'unknown_member'
+  attempted_by       uuid references auth.users(id) on delete set null,
+  attempted_at       timestamptz not null default now(),
+  details            jsonb
+);
+
+create index if not exists attendance_attempts_session_idx
+  on public.attendance_attempts(session_id);
+
+alter table public.attendance_attempts enable row level security;
+
+drop policy if exists "staff inserts attempts" on public.attendance_attempts;
+drop policy if exists "staff reads attempts"   on public.attendance_attempts;
+
+create policy "staff inserts attempts"
+  on public.attendance_attempts for insert
+  with check (
+    public.has_role(auth.uid(), 'admin') or
+    public.has_role(auth.uid(), 'volunteer')
+  );
+
+create policy "staff reads attempts"
+  on public.attendance_attempts for select
+  using (
+    public.has_role(auth.uid(), 'admin') or
+    public.has_role(auth.uid(), 'volunteer')
+  );
 
 -- 4. SIGNATURE STORAGE BUCKET ----------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
