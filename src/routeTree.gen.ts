@@ -13,6 +13,7 @@ import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as GenerateRouteImport } from './routes/generate'
 import { Route as ExportRouteImport } from './routes/export'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AttendanceRouteImport } from './routes/attendance'
 import { Route as IndexRouteImport } from './routes/index'
 
@@ -36,6 +37,11 @@ const ExportRoute = ExportRouteImport.update({
   path: '/export',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AttendanceRoute = AttendanceRouteImport.update({
   id: '/attendance',
   path: '/attendance',
@@ -50,6 +56,7 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/attendance': typeof AttendanceRoute
+  '/dashboard': typeof DashboardRoute
   '/export': typeof ExportRoute
   '/generate': typeof GenerateRoute
   '/login': typeof LoginRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/attendance': typeof AttendanceRoute
+  '/dashboard': typeof DashboardRoute
   '/export': typeof ExportRoute
   '/generate': typeof GenerateRoute
   '/login': typeof LoginRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/attendance': typeof AttendanceRoute
+  '/dashboard': typeof DashboardRoute
   '/export': typeof ExportRoute
   '/generate': typeof GenerateRoute
   '/login': typeof LoginRoute
@@ -77,16 +86,25 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/attendance'
+    | '/dashboard'
     | '/export'
     | '/generate'
     | '/login'
     | '/sessions'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/attendance' | '/export' | '/generate' | '/login' | '/sessions'
+  to:
+    | '/'
+    | '/attendance'
+    | '/dashboard'
+    | '/export'
+    | '/generate'
+    | '/login'
+    | '/sessions'
   id:
     | '__root__'
     | '/'
     | '/attendance'
+    | '/dashboard'
     | '/export'
     | '/generate'
     | '/login'
@@ -96,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AttendanceRoute: typeof AttendanceRoute
+  DashboardRoute: typeof DashboardRoute
   ExportRoute: typeof ExportRoute
   GenerateRoute: typeof GenerateRoute
   LoginRoute: typeof LoginRoute
@@ -132,6 +151,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/attendance': {
       id: '/attendance'
       path: '/attendance'
@@ -152,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AttendanceRoute: AttendanceRoute,
+  DashboardRoute: DashboardRoute,
   ExportRoute: ExportRoute,
   GenerateRoute: GenerateRoute,
   LoginRoute: LoginRoute,
@@ -160,3 +187,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}
