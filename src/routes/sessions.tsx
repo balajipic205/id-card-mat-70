@@ -156,7 +156,7 @@ function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
   }
 
   return (
-    <main className="mx-auto max-w-5xl space-y-8 px-6 py-8">
+    <main className="mx-auto max-w-5xl space-y-8 px-3 py-6 sm:px-6 sm:py-8">
       <header>
         <div className="text-xs uppercase tracking-widest text-m7-red">
           Admin
