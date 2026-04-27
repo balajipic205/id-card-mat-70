@@ -892,6 +892,21 @@ function DashboardWorkspace() {
             >
               Word · Other Colleges
             </Button>
+            <div className="mx-1 hidden h-8 w-px bg-border sm:block" />
+            <Button
+              disabled={busy}
+              onClick={exportTeamsSummaryPdf}
+              variant="secondary"
+            >
+              PDF · Teams Summary
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={exportTeamsSummaryDocx}
+              variant="secondary"
+            >
+              Word · Teams Summary
+            </Button>
           </div>
         </div>
       </section>
