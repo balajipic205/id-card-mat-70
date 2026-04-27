@@ -81,6 +81,35 @@ function isSvce(email: string | null | undefined) {
   return /@svce\.ac\.in\s*$/i.test(email.trim());
 }
 
+/** Derive a human-friendly college label from an email address. */
+function collegeNameFromEmail(email: string | null | undefined): string {
+  if (!email) return "—";
+  const at = email.indexOf("@");
+  if (at < 0) return "—";
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  if (!domain) return "—";
+  if (/(^|\.)svce\.ac\.in$/.test(domain)) return "SVCE";
+  // Strip common TLD-ish suffixes to get the institution token.
+  const stripped = domain
+    .replace(/\.(ac\.in|edu\.in|edu|ac\.uk|edu\.au|ac|in|com|org|net)$/i, "")
+    .replace(/\.[a-z]{2,3}$/i, "");
+  const head = stripped.split(".").pop() || domain;
+  // Uppercase short tokens (likely acronyms), Title-case longer ones.
+  return head.length <= 5 ? head.toUpperCase() : head.charAt(0).toUpperCase() + head.slice(1);
+}
+
+/** Pick a representative college name for a team (most common across members). */
+function teamCollegeName(emails: Array<string | null | undefined>): string {
+  const counts = new Map<string, number>();
+  for (const e of emails) {
+    const name = collegeNameFromEmail(e);
+    if (name === "—") continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  if (counts.size === 0) return "—";
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
 /** Track inferred from problem_statement_id prefix: hw / sw / is. */
 function inferTrack(psId: string | null | undefined): "HW" | "SW" | "IS" | "—" {
   if (!psId) return "—";
