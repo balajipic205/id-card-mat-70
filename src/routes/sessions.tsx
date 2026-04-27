@@ -222,6 +222,7 @@ function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
               value={starts}
               onChange={(e) => setStarts(e.target.value)}
             />
+            <TimePreview value={starts} />
           </div>
           <div className="space-y-2">
             <Label>Ends at</Label>
@@ -230,6 +231,7 @@ function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
               value={ends}
               onChange={(e) => setEnds(e.target.value)}
             />
+            <TimePreview value={ends} />
           </div>
         </div>
         <div className="mt-5">
