@@ -89,6 +89,30 @@ function toLocalInput(value: string | Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Friendly preview like "Mon, 27 Apr 2026, 8:00 AM". */
+function prettyLocal(value: string) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function TimePreview({ value }: { value: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      <span className="text-m7-red">●</span> {prettyLocal(value)}
+    </p>
+  );
+}
+
 function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [name, setName] = useState("Day 1 — Morning");
@@ -198,6 +222,7 @@ function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
               value={starts}
               onChange={(e) => setStarts(e.target.value)}
             />
+            <TimePreview value={starts} />
           </div>
           <div className="space-y-2">
             <Label>Ends at</Label>
@@ -206,6 +231,7 @@ function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
               value={ends}
               onChange={(e) => setEnds(e.target.value)}
             />
+            <TimePreview value={ends} />
           </div>
         </div>
         <div className="mt-5">
@@ -269,6 +295,7 @@ function SessionEditor({
             value={starts}
             onChange={(e) => setStarts(e.target.value)}
           />
+          <TimePreview value={starts} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Ends</Label>
@@ -277,6 +304,7 @@ function SessionEditor({
             value={ends}
             onChange={(e) => setEnds(e.target.value)}
           />
+          <TimePreview value={ends} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Notes</Label>

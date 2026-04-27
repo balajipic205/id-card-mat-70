@@ -81,6 +81,35 @@ function isSvce(email: string | null | undefined) {
   return /@svce\.ac\.in\s*$/i.test(email.trim());
 }
 
+/** Derive a human-friendly college label from an email address. */
+function collegeNameFromEmail(email: string | null | undefined): string {
+  if (!email) return "—";
+  const at = email.indexOf("@");
+  if (at < 0) return "—";
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  if (!domain) return "—";
+  if (/(^|\.)svce\.ac\.in$/.test(domain)) return "SVCE";
+  // Strip common TLD-ish suffixes to get the institution token.
+  const stripped = domain
+    .replace(/\.(ac\.in|edu\.in|edu|ac\.uk|edu\.au|ac|in|com|org|net)$/i, "")
+    .replace(/\.[a-z]{2,3}$/i, "");
+  const head = stripped.split(".").pop() || domain;
+  // Uppercase short tokens (likely acronyms), Title-case longer ones.
+  return head.length <= 5 ? head.toUpperCase() : head.charAt(0).toUpperCase() + head.slice(1);
+}
+
+/** Pick a representative college name for a team (most common across members). */
+function teamCollegeName(emails: Array<string | null | undefined>): string {
+  const counts = new Map<string, number>();
+  for (const e of emails) {
+    const name = collegeNameFromEmail(e);
+    if (name === "—") continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  if (counts.size === 0) return "—";
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
 /** Track inferred from problem_statement_id prefix: hw / sw / is. */
 function inferTrack(psId: string | null | undefined): "HW" | "SW" | "IS" | "—" {
   if (!psId) return "—";
@@ -198,7 +227,12 @@ function DashboardWorkspace() {
   const grouped = useMemo(() => {
     const byTeam = new Map<
       string,
-      { team: TeamRow; members: MemberRow[]; college: "SVCE" | "Other" }
+      {
+        team: TeamRow;
+        members: MemberRow[];
+        college: "SVCE" | "Other";
+        collegeName: string;
+      }
     >();
     for (const m of members) {
       if (!m.team_id) continue;
@@ -206,16 +240,17 @@ function DashboardWorkspace() {
       if (!team) continue;
       let entry = byTeam.get(m.team_id);
       if (!entry) {
-        entry = { team, members: [], college: "Other" };
+        entry = { team, members: [], college: "Other", collegeName: "—" };
         byTeam.set(m.team_id, entry);
       }
       entry.members.push(m);
     }
-    // Decide college per team: if ANY member has SVCE email, mark SVCE.
+    // Decide college bucket + display name per team.
     for (const e of byTeam.values()) {
       e.college = e.members.some((m) => isSvce(m.college_email))
         ? "SVCE"
         : "Other";
+      e.collegeName = teamCollegeName(e.members.map((m) => m.college_email));
     }
     return Array.from(byTeam.values()).sort(
       (a, b) => (a.team.team_number ?? 9999) - (b.team.team_number ?? 9999),
@@ -298,7 +333,9 @@ function DashboardWorkspace() {
           teamName: g.team.team_name,
           psid: g.team.problem_statement_id ?? "—",
           track: g.track,
-          collegeMark: g.college === "SVCE" ? "SVCE" : "Other college",
+          collegeMark: collegeNameFromEmail(m.college_email) !== "—"
+            ? collegeNameFromEmail(m.college_email)
+            : g.collegeName,
           memberName: m.full_name,
           uid: m.unique_member_id,
           signatureUrl: att?.signature_url ?? null,
@@ -307,6 +344,20 @@ function DashboardWorkspace() {
       }
     }
     return rows;
+  }
+
+  /** Rows mirroring the on-screen Teams table for the "Teams Summary" export. */
+  function buildTeamsSummaryRows() {
+    return teamRows.map((g, i) => ({
+      sno: i + 1,
+      teamName: g.team.team_name,
+      teamNumber: g.team.team_number,
+      psid: g.team.problem_statement_id ?? "—",
+      track: g.track,
+      college: g.collegeName,
+      memberCount: g.members.length,
+      presentCount: g.presentCount,
+    }));
   }
 
   async function exportPdf(college: "SVCE" | "Other") {
@@ -610,6 +661,174 @@ function DashboardWorkspace() {
     }
   }
 
+  async function exportTeamsSummaryPdf() {
+    if (!activeSession) return toast.error("No session selected");
+    setBusy(true);
+    try {
+      const rows = buildTeamsSummaryRows();
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      doc.setFont("times", "bold");
+      doc.setFontSize(16);
+      doc.text("MAKE-A-THON 7.0", pageW / 2, 36, { align: "center" });
+      doc.setFontSize(12);
+      doc.setFont("times", "normal");
+      doc.text(
+        `Session: ${activeSession.name}  |  ${new Date(activeSession.starts_at).toLocaleString()}  →  ${new Date(activeSession.ends_at).toLocaleString()}`,
+        pageW / 2,
+        54,
+        { align: "center" },
+      );
+      doc.text("Teams Summary", pageW / 2, 72, { align: "center" });
+
+      autoTable(doc, {
+        startY: 86,
+        head: [["S.No", "Team", "#", "PS ID", "Track", "College", "Members", "Present"]],
+        body: rows.map((r) => [
+          String(r.sno),
+          r.teamName,
+          r.teamNumber != null ? `#${r.teamNumber}` : "—",
+          r.psid,
+          r.track,
+          r.college,
+          String(r.memberCount),
+          `${r.presentCount}/${r.memberCount}`,
+        ]),
+        styles: { font: "times", fontSize: 12, cellPadding: 4, valign: "middle" },
+        headStyles: {
+          font: "times",
+          fontStyle: "bold",
+          fontSize: 12,
+          fillColor: [120, 20, 20],
+          textColor: 255,
+        },
+        columnStyles: {
+          0: { cellWidth: 40, halign: "center" },
+          2: { cellWidth: 40, halign: "center" },
+          3: { cellWidth: 70 },
+          4: { cellWidth: 50, halign: "center" },
+          6: { cellWidth: 70, halign: "center" },
+          7: { cellWidth: 70, halign: "center" },
+        },
+      });
+
+      doc.save(`MakeAThon7_TeamsSummary_${activeSession.name.replace(/\s+/g, "_")}.pdf`);
+      toast.success("Teams summary PDF downloaded");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to export PDF");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportTeamsSummaryDocx() {
+    if (!activeSession) return toast.error("No session selected");
+    setBusy(true);
+    try {
+      const rows = buildTeamsSummaryRows();
+      const TIMES = "Times New Roman";
+      const headers = ["S.No", "Team", "#", "PS ID", "Track", "College", "Members", "Present"];
+      const text = (s: string) =>
+        new Paragraph({
+          children: [new TextRun({ text: s, font: TIMES, size: 24 })],
+        });
+      const headerRow = new DocxRow({
+        tableHeader: true,
+        children: headers.map(
+          (h) =>
+            new DocxCell({
+              shading: { fill: "7A1414" },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({ text: h, bold: true, color: "FFFFFF", font: TIMES, size: 24 }),
+                  ],
+                }),
+              ],
+            }),
+        ),
+      });
+      const bodyRows = rows.map(
+        (r) =>
+          new DocxRow({
+            children: [
+              new DocxCell({ children: [text(String(r.sno))] }),
+              new DocxCell({ children: [text(r.teamName)] }),
+              new DocxCell({ children: [text(r.teamNumber != null ? `#${r.teamNumber}` : "—")] }),
+              new DocxCell({ children: [text(r.psid)] }),
+              new DocxCell({ children: [text(r.track)] }),
+              new DocxCell({ children: [text(r.college)] }),
+              new DocxCell({ children: [text(String(r.memberCount))] }),
+              new DocxCell({ children: [text(`${r.presentCount}/${r.memberCount}`)] }),
+            ],
+          }),
+      );
+
+      const table = new DocxTable({
+        width: { size: 9000, type: WidthType.DXA },
+        rows: [headerRow, ...bodyRows],
+      });
+      const doc = new Document({
+        styles: { default: { document: { run: { font: TIMES, size: 24 } } } },
+        sections: [
+          {
+            properties: {
+              page: {
+                size: { width: 12240, height: 15840, orientation: PageOrientation.LANDSCAPE },
+                margin: { top: 720, right: 720, bottom: 720, left: 720 },
+              },
+            },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                heading: HeadingLevel.HEADING_1,
+                children: [
+                  new TextRun({ text: "MAKE-A-THON 7.0", bold: true, font: TIMES, size: 32 }),
+                ],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({ text: `Session: ${activeSession.name}`, font: TIMES, size: 24 }),
+                ],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    text: `${new Date(activeSession.starts_at).toLocaleString()}  →  ${new Date(activeSession.ends_at).toLocaleString()}`,
+                    font: TIMES,
+                    size: 24,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({ text: "Teams Summary", bold: true, font: TIMES, size: 24 }),
+                ],
+              }),
+              new Paragraph({ children: [new TextRun({ text: " ", font: TIMES, size: 24 })] }),
+              table,
+            ],
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      saveAs(
+        blob,
+        `MakeAThon7_TeamsSummary_${activeSession.name.replace(/\s+/g, "_")}.docx`,
+      );
+      toast.success("Teams summary Word doc downloaded");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to export Word doc");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
       <header>
@@ -672,6 +891,21 @@ function DashboardWorkspace() {
               onClick={() => exportDocx("Other")}
             >
               Word · Other Colleges
+            </Button>
+            <div className="mx-1 hidden h-8 w-px bg-border sm:block" />
+            <Button
+              disabled={busy}
+              onClick={exportTeamsSummaryPdf}
+              variant="secondary"
+            >
+              PDF · Teams Summary
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={exportTeamsSummaryDocx}
+              variant="secondary"
+            >
+              Word · Teams Summary
             </Button>
           </div>
         </div>
@@ -744,7 +978,7 @@ function DashboardWorkspace() {
                     </td>
                     <td className="py-2 pr-3 text-xs">{g.team.problem_statement_id ?? "—"}</td>
                     <td className="py-2 pr-3">{g.track}</td>
-                    <td className="py-2 pr-3">{g.college}</td>
+                    <td className="py-2 pr-3">{g.collegeName}</td>
                     <td className="py-2 pr-3">{g.members.length}</td>
                     <td className={"py-2 pr-3 font-medium " + tone}>
                       {g.presentCount}/{g.members.length}
