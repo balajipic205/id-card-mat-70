@@ -257,7 +257,7 @@ function SessionEditor({
   const [notes, setNotes] = useState(row.notes ?? "");
   return (
     <li className="rounded-xl border border-border bg-card/60 p-4">
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Name</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />
