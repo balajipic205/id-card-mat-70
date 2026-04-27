@@ -333,7 +333,9 @@ function DashboardWorkspace() {
           teamName: g.team.team_name,
           psid: g.team.problem_statement_id ?? "—",
           track: g.track,
-          collegeMark: g.college === "SVCE" ? "SVCE" : "Other college",
+          collegeMark: collegeNameFromEmail(m.college_email) !== "—"
+            ? collegeNameFromEmail(m.college_email)
+            : g.collegeName,
           memberName: m.full_name,
           uid: m.unique_member_id,
           signatureUrl: att?.signature_url ?? null,
@@ -342,6 +344,20 @@ function DashboardWorkspace() {
       }
     }
     return rows;
+  }
+
+  /** Rows mirroring the on-screen Teams table for the "Teams Summary" export. */
+  function buildTeamsSummaryRows() {
+    return teamRows.map((g, i) => ({
+      sno: i + 1,
+      teamName: g.team.team_name,
+      teamNumber: g.team.team_number,
+      psid: g.team.problem_statement_id ?? "—",
+      track: g.track,
+      college: g.collegeName,
+      memberCount: g.members.length,
+      presentCount: g.presentCount,
+    }));
   }
 
   async function exportPdf(college: "SVCE" | "Other") {
