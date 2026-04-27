@@ -55,7 +55,7 @@ function SessionsPage() {
       <div className="min-h-screen">
         <Header />
         <div className="mx-auto max-w-xl px-6 py-24 text-center">
-          <h1 className="font-display text-3xl font-bold text-gradient-spider">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-gradient-spider">
             Admins only
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
@@ -76,7 +76,7 @@ function SessionsPage() {
 
   return (
     <div className="min-h-screen">
-      <Toaster theme="dark" position="top-right" richColors />
+      <Toaster theme="dark" position="top-center" richColors closeButton expand visibleToasts={3} toastOptions={{ style: { fontSize: "0.95rem" } }} />
       <Header />
       <SessionsWorkspace adminUserId={user?.id ?? null} />
     </div>
@@ -156,12 +156,12 @@ function SessionsWorkspace({ adminUserId }: { adminUserId: string | null }) {
   }
 
   return (
-    <main className="mx-auto max-w-5xl space-y-8 px-6 py-8">
+    <main className="mx-auto max-w-5xl space-y-8 px-3 py-6 sm:px-6 sm:py-8">
       <header>
         <div className="text-xs uppercase tracking-widest text-m7-red">
           Admin
         </div>
-        <h1 className="font-display text-3xl font-bold">
+        <h1 className="font-display text-2xl sm:text-3xl font-bold">
           Attendance <span className="text-gradient-spider">Sessions</span>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -257,7 +257,7 @@ function SessionEditor({
   const [notes, setNotes] = useState(row.notes ?? "");
   return (
     <li className="rounded-xl border border-border bg-card/60 p-4">
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Name</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />

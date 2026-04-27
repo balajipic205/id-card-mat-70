@@ -86,7 +86,7 @@ function AttendancePage() {
       <div className="min-h-screen">
         <Header />
         <div className="mx-auto max-w-xl px-6 py-24 text-center">
-          <h1 className="font-display text-3xl font-bold text-gradient-spider">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-gradient-spider">
             Staff only
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
@@ -107,7 +107,7 @@ function AttendancePage() {
 
   return (
     <div className="min-h-screen">
-      <Toaster theme="dark" position="top-right" richColors />
+      <Toaster theme="dark" position="top-center" richColors closeButton expand visibleToasts={3} toastOptions={{ style: { fontSize: "0.95rem" } }} />
       <Header />
       <AttendanceWorkspace
         userId={user?.id ?? null}
@@ -190,14 +190,62 @@ function AttendanceWorkspace({
     sigRef.current?.clear();
   }
 
+  /** Returns null if window OK, else a reason string. */
+  function checkWindow(s: SessionRow | null): null | "before_window" | "after_window" {
+    if (!s) return null;
+    const now = Date.now();
+    const start = new Date(s.starts_at).getTime();
+    const end = new Date(s.ends_at).getTime();
+    if (now < start) return "before_window";
+    if (now > end) return "after_window";
+    return null;
+  }
+
+  async function logAttempt(
+    reason: string,
+    uid: string | null,
+    details?: Record<string, unknown>,
+  ) {
+    try {
+      await supabase.from("attendance_attempts").insert({
+        session_id: sessionId,
+        unique_member_id: uid,
+        reason,
+        attempted_by: userId,
+        details: details ?? null,
+      });
+    } catch {
+      /* logging failure is not fatal */
+    }
+  }
+
   async function handleScannedId(rawId: string) {
     if (!sessionId) {
       toast.error("Pick an active session first.");
+      await logAttempt("no_session", rawId.trim() || null);
       return;
     }
     const id = rawId.trim();
     if (!id) return;
     if (scanned?.unique_member_id === id) return;
+
+    const active = sessions.find((s) => s.id === sessionId) ?? null;
+    const winErr = checkWindow(active);
+    if (winErr) {
+      const when =
+        winErr === "before_window"
+          ? `starts at ${new Date(active!.starts_at).toLocaleString()}`
+          : `ended at ${new Date(active!.ends_at).toLocaleString()}`;
+      toast.error("Session is closed", {
+        description: `This session ${when}. Attendance cannot be recorded right now.`,
+        duration: 6000,
+      });
+      await logAttempt(winErr, id, {
+        session_starts_at: active?.starts_at,
+        session_ends_at: active?.ends_at,
+      });
+      return;
+    }
 
     const { data: existing } = await supabase
       .from("attendance")
@@ -210,6 +258,7 @@ function AttendanceWorkspace({
     if (existing) {
       setAlreadyMarked(existing as AttendanceRow);
       setScanned(null);
+      await logAttempt("duplicate", id);
       toast.warning(
         `${(existing as AttendanceRow).full_name ?? id} already marked`,
         {
@@ -228,6 +277,7 @@ function AttendanceWorkspace({
       .maybeSingle();
     if (error || !member) {
       toast.error(`No member found for ID ${id}`);
+      await logAttempt("unknown_member", id);
       return;
     }
     let team: Team | null = null;
@@ -253,6 +303,20 @@ function AttendanceWorkspace({
 
   async function saveAttendance() {
     if (!scanned || !sessionId) return;
+    const active = sessions.find((s) => s.id === sessionId) ?? null;
+    const winErr = checkWindow(active);
+    if (winErr) {
+      const when =
+        winErr === "before_window"
+          ? `starts at ${new Date(active!.starts_at).toLocaleString()}`
+          : `ended at ${new Date(active!.ends_at).toLocaleString()}`;
+      toast.error("Session is closed", {
+        description: `This session ${when}.`,
+        duration: 6000,
+      });
+      await logAttempt(winErr, scanned.unique_member_id);
+      return;
+    }
     if (!checked) {
       toast.error("Tick the present checkbox before saving.");
       return;
@@ -380,7 +444,7 @@ function AttendanceWorkspace({
   if (sessions.length === 0) {
     return (
       <main className="mx-auto max-w-3xl space-y-6 px-6 py-16 text-center">
-        <h1 className="font-display text-3xl font-bold text-gradient-spider">
+        <h1 className="font-display text-2xl sm:text-3xl font-bold text-gradient-spider">
           No sessions yet
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -398,18 +462,20 @@ function AttendanceWorkspace({
     );
   }
 
+  const winState = checkWindow(activeSession);
+
   return (
-    <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-8 lg:grid-cols-2">
+    <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-3 py-6 sm:px-6 sm:py-8 lg:grid-cols-2">
       <section className="space-y-4">
         <header>
           <div className="text-xs uppercase tracking-widest text-m7-red">
             Active session
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <select
               value={sessionId ?? ""}
               onChange={(e) => setSessionId(e.target.value)}
-              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
             >
               {sessions.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -431,12 +497,27 @@ function AttendanceWorkspace({
             ) : null}
           </div>
           {activeSession ? (
-            <div className="mt-1 text-xs text-muted-foreground">
-              {new Date(activeSession.starts_at).toLocaleString()} →{" "}
-              {new Date(activeSession.ends_at).toLocaleString()}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">
+                {new Date(activeSession.starts_at).toLocaleString()} →{" "}
+                {new Date(activeSession.ends_at).toLocaleString()}
+              </span>
+              {winState === null ? (
+                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-300">
+                  Open
+                </span>
+              ) : winState === "before_window" ? (
+                <span className="rounded-full border border-yellow-500/40 bg-yellow-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-yellow-300">
+                  Not started
+                </span>
+              ) : (
+                <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-red-300">
+                  Closed
+                </span>
+              )}
             </div>
           ) : null}
-          <h1 className="mt-4 font-display text-3xl font-bold">
+          <h1 className="mt-4 font-display text-2xl sm:text-3xl font-bold">
             <span className="text-gradient-spider">Scan</span> participant QR
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -481,7 +562,7 @@ function AttendanceWorkspace({
           <div className="text-xs uppercase tracking-widest text-m7-red">
             Step 2
           </div>
-          <h2 className="font-display text-3xl font-bold">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold">
             Confirm <span className="text-gradient-spider">&amp; Sign</span>
           </h2>
           <div className="gradient-bar mt-3 w-24 animate-shimmer" />
